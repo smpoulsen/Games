@@ -67,17 +67,19 @@ gameLoop (g, w, l) = do
     -- Get Guess
     let remainingGuesses = 4 - g
     guess <- putStr ("Guess (" ++ show remainingGuesses ++ " left)? ") >> hFlush stdout >> getLine
-    {-
-    hFlush stdout
-    guess <- getLine
-    -}
     -- Check against Goal 
-    let lettersCorrect = checkGuess w (T.toUpper . T.pack $ guess)
-    if (lettersCorrect == T.length w) || (g == 3)
-        then 
-        -- Word was guessed, or out of guesses.
-        return (g, w, l) 
-        else do
-        -- Still have guesses, try again.
-        putStr $ show lettersCorrect ++ "/" ++ (show . T.length $ w) ++ " correct.\n"
-        gameLoop (g+1, w, l)
+    let formattedGuess = T.toUpper . T.pack $ guess
+    case formattedGuess `elem` l of
+        True -> do
+            let lettersCorrect = checkGuess w formattedGuess
+            if (lettersCorrect == T.length w) || (g == 3)
+                then 
+                -- Word was guessed, or out of guesses.
+                return (g, w, l) 
+                else do
+                -- Still have guesses, try again.
+                putStr $ show lettersCorrect ++ "/" ++ (show . T.length $ w) ++ " correct.\n"
+                gameLoop (g+1, w, l)
+        False -> do
+            putStrLn "Invalid guess. Try again."
+            gameLoop (g, w, l)
