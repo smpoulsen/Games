@@ -43,9 +43,11 @@ main = do
     g         <- getStdGen
     gameState <- setUpGame g
     (guesses, goalWord, allWords) <- gameLoop gameState
+    {-
     case guesses of
         3         -> putStrLn $ "\nYou lost! The word was: " ++ T.unpack goalWord
         otherwise -> putStrLn $ "\nYou won! The word was: " ++ T.unpack goalWord
+    -}
     putStrLn "GAME OVER"
     
 setUpGame :: StdGen -> IO GameState
@@ -67,15 +69,21 @@ gameLoop (g, w, l) = do
     let remainingGuesses = 4 - g
     guess <- putStr ("Guess (" ++ show remainingGuesses ++ " left)? ") >> hFlush stdout >> getLine
     let formattedGuess = T.toUpper . T.pack $ guess
-    case formattedGuess `elem` l of
-        True -> do
-            let lettersCorrect = checkGuess w formattedGuess
-            if (lettersCorrect == T.length w) || (g == 3)
-                then 
-                return (g, w, l) 
+    if formattedGuess `elem` l 
+        then do
+            if formattedGuess == w 
+                then do
+                    putStrLn $ "\nYou won! The word was: " ++ T.unpack w 
+                    return (g, w, l) 
                 else do
-                putStr $ show lettersCorrect ++ "/" ++ (show . T.length $ w) ++ " correct.\n"
-                gameLoop (g+1, w, l)
-        False -> do
+                    if g == 3
+                        then do 
+                            putStrLn $ "\nYou lost! The word was: " ++ T.unpack w
+                            return (g, w, l)
+                        else do
+                            let lettersCorrect = checkGuess w formattedGuess
+                            putStr $ show lettersCorrect ++ "/" ++ (show . T.length $ w) ++ " correct.\n"
+                            gameLoop (g+1, w, l)
+        else do
             putStrLn "Invalid guess. Try again."
             gameLoop (g, w, l)
