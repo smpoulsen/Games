@@ -42,12 +42,7 @@ checkGuess goal guess = foldr (\(x,y) -> if x == y then (+1) else (+0)) 0 $ T.zi
 main = do
     g         <- getStdGen
     gameState <- setUpGame g
-    (guesses, goalWord, allWords) <- gameLoop gameState
-    {-
-    case guesses of
-        3         -> putStrLn $ "\nYou lost! The word was: " ++ T.unpack goalWord
-        otherwise -> putStrLn $ "\nYou won! The word was: " ++ T.unpack goalWord
-    -}
+    result    <- gameLoop gameState
     putStrLn "GAME OVER"
     
 setUpGame :: StdGen -> IO GameState
@@ -60,7 +55,6 @@ setUpGame g = do
     goalIndex <- randomRIO (0, length wordList - 1)
     let gameState = (0, goalWord, wordList)
                     where goalWord = wordList !! goalIndex
- 
     mapM_ (putStrLn . T.unpack) wordList 
     return gameState
 
