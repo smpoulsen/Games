@@ -16,11 +16,11 @@ type WordNumber     = Int
 wordLengthQuant :: StdGen -> Difficulty -> (WordLength, WordNumber)
 wordLengthQuant g d = combos !! fst (randomR (0, length combos - 1) g)
     where combos = case d of
-            1 -> possibleCombos [4..7]
-            2 -> possibleCombos [5..8]
-            3 -> possibleCombos [6..10]
-            4 -> possibleCombos [8..13]
-            5 -> possibleCombos [10..15]
+            1 -> possibleCombos [4..6]
+            2 -> possibleCombos [6..8]
+            3 -> possibleCombos [8..10]
+            4 -> possibleCombos [10..12]
+            5 -> possibleCombos [12..15]
             otherwise -> possibleCombos [4..15]
           possibleCombos z = (\x y -> (x,y)) <$> z <*> z
 
@@ -64,20 +64,16 @@ setUpGame g = do
 
 gameLoop :: GameState -> IO GameState
 gameLoop (g, w, l) = do
-    -- Get Guess
     let remainingGuesses = 4 - g
     guess <- putStr ("Guess (" ++ show remainingGuesses ++ " left)? ") >> hFlush stdout >> getLine
-    -- Check against Goal 
     let formattedGuess = T.toUpper . T.pack $ guess
     case formattedGuess `elem` l of
         True -> do
             let lettersCorrect = checkGuess w formattedGuess
             if (lettersCorrect == T.length w) || (g == 3)
                 then 
-                -- Word was guessed, or out of guesses.
                 return (g, w, l) 
                 else do
-                -- Still have guesses, try again.
                 putStr $ show lettersCorrect ++ "/" ++ (show . T.length $ w) ++ " correct.\n"
                 gameLoop (g+1, w, l)
         False -> do
