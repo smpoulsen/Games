@@ -12,3 +12,4 @@ Rules as in /r/dailyprogrammer challenge <a href=http://www.reddit.com/r/dailypr
 Done for /r/dailyprogrammer challenge <a href=http://www.reddit.com/r/dailyprogrammer/comments/263dp1/5212014_challenge_163_intermediate_fallouts/>#163</a>.
 
 In the spirit of the terminal hacking minigame in Fallout 3 and Fallout New Vegas.
+Uses the dictionary file "enable1.txt" linked to in the initial /r/dailyprogrammer post explaining the challenge.
