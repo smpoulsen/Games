@@ -16,13 +16,13 @@ type WordNumber   = Int
 wordLengthQuant :: StdGen -> Difficulty -> (WordLength, WordNumber)
 wordLengthQuant g d = combos !! fst (randomR (0, length combos - 1) g)
   where combos = case d of
-      1 -> possibleCombos [4..6]
-      2 -> possibleCombos [6..8]
-      3 -> possibleCombos [8..10]
-      4 -> possibleCombos [10..12]
-      5 -> possibleCombos [12..15]
-      otherwise -> possibleCombos [4..15]
-      possibleCombos z = (\x y -> (x,y)) <$> z <*> z
+                  1 -> possibleCombos [4..6]
+                  2 -> possibleCombos [6..8]
+                  3 -> possibleCombos [8..10]
+                  4 -> possibleCombos [10..12]
+                  5 -> possibleCombos [12..15]
+                  otherwise -> possibleCombos [4..15]
+        possibleCombos z = (\x y -> (x,y)) <$> z <*> z
 
 readWordList :: FilePath -> IO WordList
 readWordList x = do
@@ -33,8 +33,8 @@ readWordList x = do
 getRandomWords :: WordList -> (WordLength, WordNumber) -> StdGen -> WordList
 getRandomWords w (l,n) g = map (\x -> useableWords !! x) randomNs
   where randomNs = take n $ randomRs (0, length useableWords) g 
-      wordsForDifficulty l' = filter (\x -> T.length x == l') 
-      useableWords = wordsForDifficulty l w
+        wordsForDifficulty l' = filter (\x -> T.length x == l') 
+        useableWords = wordsForDifficulty l w
 
 checkGuess :: GoalWord -> GuessWord -> CorrectLetters
 checkGuess goal guess = foldr (\(x,y) -> if x == y then (+1) else (+0)) 0 $ T.zip goal guess
@@ -49,14 +49,19 @@ setUpGame :: StdGen -> IO GameState
 setUpGame g = do
   rawWordList <- readWordList "enable1.txt"
   difficulty  <- putStr "Difficulty (1-5)? " >> hFlush stdout >> readLn :: IO Int
-
-  let wordLenNum = wordLengthQuant g difficulty
-  let wordList   = map T.toUpper $ getRandomWords rawWordList wordLenNum g 
-  goalIndex <- randomRIO (0, length wordList - 1)
-  let gameState = (0, goalWord, wordList)
+  if difficulty `elem` [1..5]
+  then do
+    let wordLenNum = wordLengthQuant g difficulty
+    let wordList   = map T.toUpper $ getRandomWords rawWordList wordLenNum g 
+    goalIndex <- randomRIO (0, length wordList - 1)
+    let gameState = (0, goalWord, wordList)
           where goalWord = wordList !! goalIndex
-  mapM_ (putStrLn . T.unpack) wordList 
-  return gameState
+    mapM_ (putStrLn . T.unpack) wordList 
+    return gameState
+  else do
+    putStrLn "Invalid difficulty. Choose again."
+    setUpGame g
+
 
 gameLoop :: GameState -> IO GameState
 gameLoop (g, w, l) = do
