@@ -69,20 +69,20 @@ gameLoop (g, w, l) = do
   guess <- putStr ("Guess (" ++ show remainingGuesses ++ " left)? ") >> hFlush stdout >> getLine
   let formattedGuess = T.toUpper . T.pack $ guess
   if formattedGuess `elem` l 
-    then
-      if formattedGuess == w 
-        then do
-          putStrLn $ "\nYou won! The word was: " ++ T.unpack w 
-          return (g, w, l) 
-        else
-          if g == 3
-            then do 
-              putStrLn $ "\nYou lost! The word was: " ++ T.unpack w
-              return (g, w, l)
-            else do
-              let lettersCorrect = checkGuess w formattedGuess
-              putStr $ show lettersCorrect ++ "/" ++ (show . T.length $ w) ++ " correct.\n"
-              gameLoop (g+1, w, l)
-    else do
-      putStrLn "Invalid guess. Try again."
-      gameLoop (g, w, l)
+  then
+    if formattedGuess == w 
+    then do
+      putStrLn $ "\nYou won! The word was: " ++ T.unpack w 
+      return (g, w, l) 
+    else
+      if g == 3
+      then do 
+        putStrLn $ "\nYou lost! The word was: " ++ T.unpack w
+        return (g, w, l)
+      else do
+        let lettersCorrect = checkGuess w formattedGuess
+        putStr $ show lettersCorrect ++ "/" ++ (show . T.length $ w) ++ " correct.\n"
+        gameLoop (g+1, w, l)
+  else do
+    putStrLn "Invalid guess. Try again."
+    gameLoop (g, w, l)
