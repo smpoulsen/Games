@@ -26,7 +26,7 @@ input = sampleOn delta (Input <~ lift .x Keyboard.arrows
                                ~ delta)
 
 --MODEL
-type Player   = { x:Float, y:Float, vx:Float, vy:Float, w:Float, h:Float, objFill:Color, active:Bool }
+type Player   = { x:Float, y:Float, vx:Float, vy:Float, w:Float, h:Float, jumpingV:Float, objFill:Color, active:Bool }
 type Obstacle = { x:Float, y:Float, w:Float, h:Float, objFill:Color }
 type Game     = { characters:Dict.Dict Int Player, obstacles:[Obstacle], colliding:Obstacle, level:Int }
 
@@ -43,9 +43,9 @@ defaultGame = { characters   = Dict.fromList [(1,player1), (2,player2)]
 mapFloor : Obstacle
 mapFloor = { x=0, y=0, w=600, h=50, objFill=lightGreen }
 player1 : Player
-player1 =  { x=-290, y=0, vx=0, vy=0, w=10, h=50, objFill=red, active=True }
+player1 =  { x=-290, y=0, vx=0, vy=0, w=10, h=50, jumpingV=8.0, objFill=red, active=True }
 player2 : Player
-player2 = { x=290, y=0, vx=0, vy=0, w=25, h=25, objFill=blue, active=False }
+player2 = { x=290, y=0, vx=0, vy=0, w=25, h=25, jumpingV=5.0, objFill=blue, active=False }
 
 --UPDATE
 collision : Player -> Obstacle -> Bool
@@ -64,8 +64,8 @@ setActive : Input -> Game -> Game
 setActive i g = if i.key1 then Dict.update 1 (lift (\x -> x.active <- True) g.characters 
                 else g
 -}
-jump    y o p   = if y > 0 && (p.y <= (o.y + o.h/2 + p.h/2 )) 
-                  then {p | vy <- 5} else p
+jump    y o p   = if p.active && y > 0 && (p.y <= (o.y + o.h/2 + p.h/2 ))
+                  then {p | vy <- p.jumpingV} else p
 
 gravity t o p   = if (p.y > (o.y + o.h/2 + p.h/2))
                   then {p | vy <-  p.vy - t/4}  else p
@@ -75,9 +75,10 @@ physics t o p = {p | x <- clamp (-halfWidth) (halfWidth) <| p.x + t * p.vx * 2
                            
                 }
 
-walk    i p   = {p | vx <- if | i.shift   -> toFloat i.xDir*2
-                              | otherwise -> toFloat i.xDir
-                }
+walk    i p   = if p.active then {p | vx <- if | i.shift   -> toFloat i.xDir*2
+                                    | otherwise -> toFloat i.xDir
+                                 }
+                else p
 --step : Input -> Game -> Dict.Dict Int Player -> Dict.Dict Int Player 
 step i g = let oColl = setColliding g.obstacles g.colliding
            in Dict.map (\x -> physics i.delta (oColl x) . walk i . gravity i.delta (oColl x) . jump i.yDir (oColl x) <| x ) g.characters 
