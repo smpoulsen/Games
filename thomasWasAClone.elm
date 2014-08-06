@@ -59,11 +59,10 @@ setColliding os c p =
       let collider = listToMaybe . filter (collision p) <| os
       in maybe c (\x -> x) collider
 
-{-
-setActive : Input -> Game -> Game
-setActive i g = if i.key1 then Dict.update 1 (lift (\x -> x.active <- True) g.characters 
-                else g
--}
+
+toggleActive i p = if i.key1 || i.key2 then { p | active <- not p.active } 
+                   else p
+
 jump    y o p   = if p.active && y > 0 && (p.y <= (o.y + o.h/2 + p.h/2 ))
                   then {p | vy <- p.jumpingV} else p
 
@@ -79,12 +78,12 @@ walk    i p   = if p.active then {p | vx <- if | i.shift   -> toFloat i.xDir*2
                                     | otherwise -> toFloat i.xDir
                                  }
                 else p
---step : Input -> Game -> Dict.Dict Int Player -> Dict.Dict Int Player 
+step : Input -> Game -> Dict.Dict Int Player 
 step i g = let oColl = setColliding g.obstacles g.colliding
-           in Dict.map (\x -> physics i.delta (oColl x) . walk i . gravity i.delta (oColl x) . jump i.yDir (oColl x) <| x ) g.characters 
+           in Dict.map (\x -> physics i.delta (oColl x) . walk i . gravity i.delta (oColl x) . jump i.yDir (oColl x) . toggleActive i <| x ) g.characters 
 
 --stepGame : Input -> Game -> Game
-stepGame i g = { g | characters <- step i g } 
+stepGame i g = { g | characters <- step i g }
 
 gameState = foldp stepGame defaultGame input
 
