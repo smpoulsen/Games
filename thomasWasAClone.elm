@@ -26,13 +26,12 @@ input = sampleOn delta (Input <~ lift .x Keyboard.arrows
                                ~ delta)
 
 --MODEL
-type Player   = { x:Float, y:Float, vx:Float, vy:Float, w:Float, h:Float, objFill:Color }
+type Player   = { x:Float, y:Float, vx:Float, vy:Float, w:Float, h:Float, objFill:Color, active:Bool }
 type Obstacle = { x:Float, y:Float, w:Float, h:Float, objFill:Color }
-type Game     = { activePlayer:Player, characters:Dict.Dict Int Player, obstacles:[Obstacle], colliding:Obstacle, level:Int }
+type Game     = { characters:Dict.Dict Int Player, obstacles:[Obstacle], colliding:Obstacle, level:Int }
 
 defaultGame : Game
-defaultGame = { activePlayer = player1
-              , characters   = Dict.fromList [(1,player1), (2,player2)]
+defaultGame = { characters   = Dict.fromList [(1,player1), (2,player2)]
               , obstacles    = [ mapFloor
                                , { x=(-100), y=100, w=30, h=20, objFill=yellow }
                                , { x=65, y=70, w=150, h=15, objFill=purple}
@@ -44,9 +43,9 @@ defaultGame = { activePlayer = player1
 mapFloor : Obstacle
 mapFloor = { x=0, y=0, w=600, h=50, objFill=lightGreen }
 player1 : Player
-player1 =  { x=-290, y=0, vx=0, vy=0, w=10, h=50, objFill=red }
+player1 =  { x=-290, y=0, vx=0, vy=0, w=10, h=50, objFill=red, active=True }
 player2 : Player
-player2 = { x=290, y=0, vx=0, vy=0, w=25, h=25, objFill=blue }
+player2 = { x=290, y=0, vx=0, vy=0, w=25, h=25, objFill=blue, active=False }
 
 --UPDATE
 collision : Player -> Obstacle -> Bool
@@ -55,17 +54,16 @@ collision p obj = (p.x >= (obj.x - obj.w/2 - p.w/2) &&
                   (p.y - p.h >= (obj.y - obj.h/2 - p.h/2) && 
                   p.y <= (obj.y + obj.h/2 + p.h/2))
 
-setColliding : Player -> [Obstacle] -> Obstacle -> Obstacle
-setColliding p os c = 
+setColliding : [Obstacle] -> Obstacle -> Player -> Obstacle
+setColliding os c p = 
       let collider = listToMaybe . filter (collision p) <| os
       in maybe c (\x -> x) collider
 
+{-
 setActive : Input -> Game -> Game
-setActive i g = let pDefault = player1
-                in if i.key1 then { g | activePlayer <- Dict.getOrElse pDefault 1 g.characters }
-                else if i.key2 then { g | activePlayer <- Dict.getOrElse pDefault 2 g.characters }
-                  else g
-
+setActive i g = if i.key1 then Dict.update 1 (lift (\x -> x.active <- True) g.characters 
+                else g
+-}
 jump    y o p   = if y > 0 && (p.y <= (o.y + o.h/2 + p.h/2 )) 
                   then {p | vy <- 5} else p
 
@@ -80,13 +78,12 @@ physics t o p = {p | x <- clamp (-halfWidth) (halfWidth) <| p.x + t * p.vx * 2
 walk    i p   = {p | vx <- if | i.shift   -> toFloat i.xDir*2
                               | otherwise -> toFloat i.xDir
                 }
+--step : Input -> Game -> Dict.Dict Int Player -> Dict.Dict Int Player 
+step i g = let oColl = setColliding g.obstacles g.colliding
+           in Dict.map (\x -> physics i.delta (oColl x) . walk i . gravity i.delta (oColl x) . jump i.yDir (oColl x) <| x ) g.characters 
 
-step i g = let oColl = setColliding g.activePlayer g.obstacles g.colliding
-           in physics i.delta oColl . walk i . gravity i.delta oColl . jump i.yDir oColl <| g.activePlayer
-
-stepGame : Input -> Game -> Game
-stepGame i g = let g' = setActive i g
-               in { g | activePlayer <- step i g' } 
+--stepGame : Input -> Game -> Game
+stepGame i g = { g | characters <- step i g } 
 
 gameState = foldp stepGame defaultGame input
 
@@ -109,9 +106,7 @@ display (w, h) g =
          [ rect mainWidth mainHeight |> filled lightBlue
          , asText "Thomas Was a Clone: Experimenting in Elm, inspired by Thomas Was Alone" |> toForm
                                                                                            |> move (0, 200)
-         , asText g.activePlayer |> toForm |> move (0,100)
          , asText g.characters |> toForm |> move (0, 50)
-         , make g.activePlayer
          ], (map make <| Dict.values g.characters),(map makeObstacle g.obstacles)]
       
 
