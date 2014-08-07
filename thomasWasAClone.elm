@@ -14,7 +14,7 @@ listToMaybe x = if | x == []   -> Nothing
                    | otherwise -> Just (head x)
 
 --INPUTS
-type Input = { xDir:Int, yDir:Int, shift:Bool, key1:Bool, key2:Bool, delta:Time }
+type Input = { xDir:Int, yDir:Int, shift:Bool, key1:Bool, delta:Time }
 
 delta = lift (\t -> t/20) (fps 60)
 
@@ -22,7 +22,6 @@ input = sampleOn delta (Input <~ lift .x Keyboard.arrows
                                ~ lift .y Keyboard.arrows
                                ~ Keyboard.shift
                                ~ Keyboard.isDown (Char.toCode '1')
-                               ~ Keyboard.isDown (Char.toCode '2')
                                ~ delta)
 
 --MODEL
@@ -59,8 +58,8 @@ setColliding os c p =
       let collider = listToMaybe . filter (collision p) <| os
       in maybe c (\x -> x) collider
 
-
-toggleActive i p = if i.key1 || i.key2 then { p | active <- not p.active } 
+--Toggling isn't working quite right; potential solution: insert since from Time module to put a delay on it.
+toggleActive i p = if i.key1 then { p | active <- not p.active } 
                    else p
 
 jump    y o p   = if p.active && y > 0 && (p.y <= (o.y + o.h/2 + p.h/2 ))
@@ -75,9 +74,10 @@ physics t o p = {p | x <- clamp (-halfWidth) (halfWidth) <| p.x + t * p.vx * 2
                 }
 
 walk    i p   = if p.active then {p | vx <- if | i.shift   -> toFloat i.xDir*2
-                                    | otherwise -> toFloat i.xDir
+                                               | otherwise -> toFloat i.xDir
                                  }
-                else p
+                else { p | vx <- 0 }
+
 step : Input -> Game -> Dict.Dict Int Player 
 step i g = let oColl = setColliding g.obstacles g.colliding
            in Dict.map (\x -> physics i.delta (oColl x) . walk i . gravity i.delta (oColl x) . jump i.yDir (oColl x) . toggleActive i <| x ) g.characters 
@@ -104,8 +104,8 @@ display (w, h) g =
     container w h middle <| collage mainWidth mainHeight <|
          concat [
          [ rect mainWidth mainHeight |> filled lightBlue
-         , asText "Thomas Was a Clone: Experimenting in Elm, inspired by Thomas Was Alone" |> toForm
-                                                                                           |> move (0, 200)
+         , [markdown|Thomas Was a Clone:<br/>Experimenting in Elm, inspired by Thomas Was Alone|] |> toForm
+                                                                                                  |> move (0, 200)
          , asText g.characters |> toForm |> move (0, 50)
          ], (map make <| Dict.values g.characters),(map makeObstacle g.obstacles)]
       
