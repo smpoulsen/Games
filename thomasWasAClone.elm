@@ -162,8 +162,9 @@ display (w, h) g =
          --, toForm [markdown|&uarr;|] |> move (-650-activeP.x, -300)
          --                            |> rotate (degrees -45)
          --, toForm [markdown|Press 'shift' to run!|] |> move (80-activeP.x, 40)
-         , toForm (if activeP.won && activeP.alive then [markdown|Congratulations! You won!|] else spacer 1 1) |> move (0, 0)
-         , toForm (if activeP.alive then spacer 1 1 else [markdown|You died!|]) |> move (0, 0) 
+         , toForm (if activeP.won && activeP.alive then [markdown|#Congratulations! You won!|] else spacer 1 1) |> move (0, 0)
+         , toForm (if activeP.alive then spacer 1 1 else [markdown|#You died!|]) |> move (0, 0) 
+         --, rect 10 mainHeight |> filled yellow |> move (halfWidth-50, 0)
          --, asText (activeP.alive, activeP.x, activeP.y-activeP.h/2, round(activeP.vy)) |> toForm |> move (0, 100)
          ], characters]
       
