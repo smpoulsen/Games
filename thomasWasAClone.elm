@@ -37,7 +37,6 @@ defaultGame = { characters   = [player1]
                                , { x=0, y=0, w= 300, h=50, objFill=lightGreen }
                                , { x=(-100), y=100, w=30, h=20, objFill=yellow }
                                , { x=65, y=60, w=150, h=15, objFill=purple}
-                               , { x=-150, y=150, w=50, h=15, objFill=brown}
                                , { x=0, y=200, w=75, h=15, objFill=black}
                                , { x=200, y=300, w=75, h=15, objFill=darkGreen}
                                , { x=750, y=300, w=75, h=15, objFill=darkGreen}
@@ -133,15 +132,15 @@ stepGame i g = { g | characters <- step i g
 gameState = foldp stepGame defaultGame input
 
 --DISPLAY
-(mainHeight, mainWidth) = (700, 1000)
+(mainHeight, mainWidth) = (600, 1000)
 (halfHeight, halfWidth) = (mainHeight / 2, mainWidth /2)
 
 make obj = 
   if obj.alive 
   then rect obj.w obj.h |> filled obj.objFill
                         |> move (obj.x, obj.y - halfHeight)
-  else rect 10 50 |> filled gray
-                  |> move (obj.x, obj.y - halfHeight)    
+  else rect 0 0 |> filled gray
+                |> move (obj.x, obj.y - halfHeight)    
 
 makeObstacle p obj  =[
   rect obj.w obj.h |> filled obj.objFill
@@ -155,14 +154,13 @@ display (w, h) g =
     let activeP    = head g.characters 
         characters = map make <| g.characters
         obstacles  = concatMap (makeObstacle activeP) g.obstacles
-    in container w h middle <| collage w h  <|
+    in container w h middle <| collage mainWidth mainHeight  <|
          concat [ obstacles,  (concatMap (makeObstacle activeP)  g.level),
          [ toForm [markdown|Thomas Was a Clone: Experimenting in Elm, inspired by Thomas Was Alone|] |> move (-400-activeP.x,150)
-         --, toForm [markdown|&rarr;|] |> move (-750-activeP.x, -350)
-         --, toForm [markdown|&uarr;|] |> move (-650-activeP.x, -300)
-         --                            |> rotate (degrees -45)
-         --, toForm [markdown|Press 'shift' to run!|] |> move (80-activeP.x, 40)
-         , toForm (if activeP.won && activeP.alive then [markdown|#Congratulations! You won!|] else spacer 1 1) |> move (0, 0)
+         , toForm [markdown|&larr; move &rarr;|] |> move (-halfWidth-280-activeP.x,-200)
+         , toForm [markdown|jump &uarr;|] |> move (-halfWidth-80-activeP.x,-100)
+         , toForm [markdown|run with SHIFT|]   |> move (360-activeP.x,50)
+         , toForm (if activeP.won && activeP.alive then [markdown|#Congratulations! You won!|] else spacer 1 1) |> move (0, 100)
          , toForm (if activeP.alive then spacer 1 1 else [markdown|#You died!|]) |> move (0, 0) 
          --, rect 10 mainHeight |> filled yellow |> move (halfWidth-50, 0)
          --, asText (activeP.alive, activeP.x, activeP.y-activeP.h/2, round(activeP.vy)) |> toForm |> move (0, 100)
