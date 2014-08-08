@@ -1,7 +1,10 @@
---Collisions/jumping working!
+{-
+A small platformer demo written to try game development, FRP, and Elm.
+Inspired by Thomas Was Alone.
+
+-}
 import Char
 import Keyboard
-import Random
 import Time
 import Window
 
@@ -28,7 +31,7 @@ input = sampleOn delta (Input <~ lift .x Keyboard.arrows
 type Player       = { x:Float, y:Float, vx:Float, vy:Float, w:Float, h:Float
                     , jumpingV:Float, objFill:Color, active:Bool, alive:Bool, won:Bool }
 type Obstacle     = { x:Float, y:Float, w:Float, h:Float, objFill:Color }
-type Game         = { characters:[Player], obstacles:[Obstacle], colliding:Obstacle, level:[Obstacle] }
+type Game         = { characters:[Player], obstacles:[Obstacle], colliding:Obstacle }
 type GameObject a = { a | x:Float, y:Float, w:Float, h:Float }
 
 defaultGame : Game
@@ -43,19 +46,16 @@ defaultGame = { characters   = [player1]
                                , { x=1000, y=150, w=200, h=15, objFill=purple}
                                , { x=1300, y=0, w= 500, h=50, objFill=lightGreen }
                                ]
-              , colliding    = death 
-              , level = []
+              , colliding    = death
               }
-mapFloor : Obstacle
+
 mapFloor = { x=-halfWidth, y=0, w= halfWidth, h=50, objFill=lightGreen }
-death    : Obstacle
 death    = { x=-halfWidth, y=0, w= mainWidth, h=0, objFill=black }
-mapSky   : Obstacle
 mapSky   = { x=halfWidth-250, y=halfHeight, w=3*mainWidth, h=mainHeight, objFill=lightBlue }
-player1  : Player
-player1  =  { x=-390, y=50, vx=0, vy=0, w=10, h=50, jumpingV=8.0, objFill=red, active=True, alive=True, won=False }
-player2  : Player
-player2  = { x=290, y=0, vx=0, vy=0, w=25, h=25, jumpingV=5.0, objFill=blue, active=False, alive=True, won=False }
+player1  =  { x=-390, y=50, vx=0, vy=0, w=10, h=50, jumpingV=8.0, 
+              objFill=red, active=True, alive=True, won=False }
+player2  = { x=290, y=0, vx=0, vy=0, w=25, h=25, jumpingV=5.0, 
+             objFill=blue, active=False, alive=True, won=False }
 
 --UPDATE
 collision : Player -> GameObject a -> Bool
@@ -78,12 +78,10 @@ toggleActive t p = if t then { p | active <- not p.active }
 isActive : Player -> Bool
 isActive p = p.active 
 
-dead   i p = if p.y <= 25 
-             then { p | alive <- False }
+dead   i p = if p.y <= 25 then { p | alive <- False }
              else p
 
-clearedLevel p = if p.x >= halfWidth-50
-                 then { p | won <- True }
+clearedLevel p = if p.x >= halfWidth-50 then { p | won <- True }
                  else p
 
 jump    y o p   = if p.active && y > 0 && (p.y == (o.y + o.h/2 + p.h/2 ))
@@ -97,26 +95,24 @@ physics t o p = {p | x <- clamp (-mainWidth) (mainWidth) <| p.x + t * p.vx * 2
                            
                 }
 
-walk    i o p   = if p.active then {p | vx <- if | p.x <= -halfWidth && i.xDir <= 0 -> 0
-                                                 | p.x >= halfWidth && i.xDir >= 0 -> 0
-                                                 --| walkingInto p o -> 0
-                                                 | not p.alive || p.won -> 0
-                                                 | i.shift   -> toFloat i.xDir * 2
-                                                 | otherwise -> toFloat i.xDir
-                                 }
+walk    i o p   = if p.active 
+                  then { p | vx <- if | p.x <= -halfWidth && i.xDir <= 0 -> 0
+                                      | p.x >= halfWidth && i.xDir >= 0 -> 0
+                                      | walkingInto p o -> 0
+                                      | not p.alive || p.won -> 0
+                                      | i.shift   -> toFloat i.xDir * 2
+                                      | otherwise -> toFloat i.xDir
+                       }
                   else { p | vx <- 0 }
 
 translate i p o = if p.active  && p.x >= -halfWidth && p.x <= halfWidth
-                  then { o | x <- clamp (o.x-halfWidth) (o.x+halfWidth) <| o.x - i.delta * p.vx * 2 }
+                  then { o | x <- o.x - i.delta * p.vx * 2 |> clamp (o.x-halfWidth) (o.x+halfWidth) }
                   else o
 
-moveObjects i g = let activeP   = maybe (head g.characters) (\x -> x) <| listToMaybe . filter (\x -> isActive x) <| g.characters
+moveObjects i g = let activeP   = g.characters |> listToMaybe . filter (\x -> isActive x) 
+                                               |> maybe (head g.characters) (\x -> x) 
                       inactiveP = filter (\x -> not . isActive <| x) <| g.characters
                   in map (translate i activeP) g.obstacles
-
-moveInactive i g = let activeP   = maybe (head g.characters) (\x -> x) <| listToMaybe . filter (\x -> isActive x) <| g.characters
-                       inactiveP = filter (\x -> not . isActive <| x) <| g.characters
-                   in map (translate i activeP) inactiveP
 
 step : Input -> Game -> [Player] 
 step i g = let oColl   = setColliding g.obstacles g.colliding
@@ -142,30 +138,27 @@ make obj =
   else rect 0 0 |> filled gray
                 |> move (obj.x, obj.y - halfHeight)    
 
-makeObstacle p obj  =[
+makeObstacle p obj  =
   rect obj.w obj.h |> filled obj.objFill
                    |> move (obj.x, obj.y - halfHeight )
-  --, asText (obj.x, obj.y) |> toForm
-  --                        |> move (obj.x, obj.y - halfHeight )
-  ]
+  
+administrivia p = 
+  group [ toForm [markdown|Thomas Was a Clone: Experimenting in Elm, 
+                 inspired by Thomas Was Alone|] |> move (-400-p.x,150)
+        , toForm [markdown|&larr; move &rarr;|] |> move (-halfWidth-280-p.x,-200)
+        , toForm [markdown|jump &uarr;|]        |> move (-halfWidth-80-p.x,-100)
+        , toForm [markdown|run with SHIFT|]     |> move (360-p.x,50)
+        , toForm (if p.won && p.alive then [markdown|#You won!|] else spacer 1 1) |> move (0, 100)
+        , toForm (if p.alive then spacer 1 1 else [markdown|#You died!|]) |> move (0, 0) 
+        ]
+
   
 display : (Int, Int) -> Game -> Element
 display (w, h) g = 
     let activeP    = head g.characters 
-        characters = map make <| g.characters
-        obstacles  = concatMap (makeObstacle activeP) g.obstacles
+        characters = group <| map make <| g.characters
+        obstacles  = group <| map (makeObstacle activeP) g.obstacles
     in container w h middle <| collage mainWidth mainHeight  <|
-         concat [ obstacles,  (concatMap (makeObstacle activeP)  g.level),
-         [ toForm [markdown|Thomas Was a Clone: Experimenting in Elm, inspired by Thomas Was Alone|] |> move (-400-activeP.x,150)
-         , toForm [markdown|&larr; move &rarr;|] |> move (-halfWidth-280-activeP.x,-200)
-         , toForm [markdown|jump &uarr;|] |> move (-halfWidth-80-activeP.x,-100)
-         , toForm [markdown|run with SHIFT|]   |> move (360-activeP.x,50)
-         , toForm (if activeP.won && activeP.alive then [markdown|#Congratulations! You won!|] else spacer 1 1) |> move (0, 100)
-         , toForm (if activeP.alive then spacer 1 1 else [markdown|#You died!|]) |> move (0, 0) 
-         --, rect 10 mainHeight |> filled yellow |> move (halfWidth-50, 0)
-         --, asText (activeP.alive, activeP.x, activeP.y-activeP.h/2, round(activeP.vy)) |> toForm |> move (0, 100)
-         ], characters]
+         [obstacles, administrivia activeP, characters]
       
-
 main = lift2 display Window.dimensions gameState
-
