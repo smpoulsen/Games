@@ -9,7 +9,6 @@ import Time
 import Window
 
 --CONVENIENCE FUNCTIONS
---elem : (Eq a) => a -> [a] -> Bool
 elem x xs = any (\y -> y==x) xs
 
 listToMaybe : [a] -> Maybe a
@@ -35,17 +34,17 @@ type Obstacle     = { x:Float, y:Float, w:Float, h:Float, objFill:Color }
 type Game         = { characters:[Player], obstacles:[Obstacle], state:WinState }
 type GameObject a = { a | x:Float, y:Float, w:Float, h:Float }
 
-defaultGame : Game
 defaultGame = { characters   = [player1]
               , obstacles    = [ mapSky, mapFloor
-                               , { x=0, y=0, w= 300, h=50, objFill=lightGreen }
-                               , { x=(-100), y=100, w=30, h=20, objFill=yellow }
-                               , { x=65, y=60, w=150, h=15, objFill=purple}
-                               , { x=0, y=200, w=75, h=15, objFill=black}
-                               , { x=200, y=300, w=75, h=15, objFill=darkGreen}
-                               , { x=750, y=300, w=75, h=15, objFill=darkGreen}
+                               , { x=0,    y=0,   w=300, h=50, objFill=lightGreen }
+                               , { x=1300, y=0,   w=500, h=50, objFill=lightGreen }
+                               , { x=-100, y=100, w=30,  h=20, objFill=yellow }
+                               , { x=65,   y=60,  w=150, h=15, objFill=purple}
+                               , { x=0,    y=200, w=75,  h=15, objFill=black}
+                               , { x=200,  y=300, w=75,  h=15, objFill=darkGreen}
+                               , { x=750,  y=300, w=75,  h=15, objFill=blue}
                                , { x=1000, y=150, w=200, h=15, objFill=purple}
-                               , { x=1300, y=0, w= 500, h=50, objFill=lightGreen }
+                               , { x=500,  y=70, w=50,   h=15, objFill=purple}
                                ]
               , state = InPlay
               }
@@ -55,7 +54,7 @@ death    = { x=-halfWidth, y=0, w= mainWidth, h=0, objFill=black }
 mapSky   = { x=halfWidth-250, y=halfHeight, w=3*mainWidth, h=mainHeight, objFill=lightBlue }
 player1  = { x=-390, y=50, vx=0, vy=0, w=10, h=50, jumpingV=8.0, 
               objFill=red, active=True, alive=True }
-player2  = { x=290, y=0, vx=0, vy=0, w=25, h=25, jumpingV=5.0, 
+player2  = { x=90, y=0, vx=0, vy=0, w=25, h=25, jumpingV=5.0, 
              objFill=blue, active=False, alive=True }
 
 --UPDATE
@@ -118,11 +117,11 @@ walk i o s p = if p.active
                     }
              else { p | vx <- 0 }
 
-translate i p o = if p.active  && p.x >= -halfWidth && p.x <= halfWidth
+translate i p o = if p.active 
                   then { o | x <- o.x - i.delta * p.vx * 2 |> clamp (o.x-halfWidth) (o.x+halfWidth) }
                   else o
 
-moveObjects i g = let activeP   = g.characters |> getActive
+moveObjects i g = let activeP = g.characters |> getActive
                   in map (translate i activeP) g.obstacles
 
 --Composed function that rolls the above together.
@@ -132,7 +131,6 @@ step i g = let oColl   = setColliding i g
                                          walk i oColl g.state . gravity i.delta oColl . 
                                          jump i.yDir oColl . toggleActive i.key1  <| x )
 
---stepGame : Input -> Game -> Game
 stepGame i g = { g | characters <- step i g
                    , obstacles  <- moveObjects i g
                    , state      <- clearedLevel g.characters g.state
@@ -144,11 +142,11 @@ gameState = foldp stepGame defaultGame input
 (mainHeight, mainWidth) = (600, 1000)
 (halfHeight, halfWidth) = (mainHeight / 2, mainWidth /2)
 
-make obj = 
-  if obj.alive then rect obj.w obj.h |> filled obj.objFill
-                                     |> move (obj.x, obj.y - halfHeight)
+make p = 
+  if p.alive then rect p.w p.h |> filled p.objFill
+                                     |> move (p.x, p.y - halfHeight)
   else rect 0 0 |> filled gray
-                |> move (obj.x, obj.y - halfHeight)    
+                |> move (p.x, p.y - halfHeight)    
 
 makeObstacle p obj  =
   rect obj.w obj.h |> filled obj.objFill
@@ -167,7 +165,7 @@ administrivia p s =
   
 display : (Int, Int) -> Game -> Element
 display (w, h) g = 
-    let activeP    = head g.characters 
+    let activeP    = getActive g.characters 
         characters = group  <| map make <| g.characters
         obstacles  = group  <| map (makeObstacle activeP) g.obstacles
         helpText   = administrivia activeP g.state
