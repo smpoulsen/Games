@@ -104,7 +104,7 @@ gravity t o p = if p.y > (o.y + o.h/2 + p.h/2)
                 else p
 
 physics t o p  = {p | x <- clamp (-mainWidth) (mainWidth) <| p.x + t * p.vx * 2
-                   , y <- max (p.y + t*p.vy) <| (o.y + o.h/2 + p.h/2) 
+                    , y <- max (p.y + t*p.vy) <| (o.y + o.h/2 + p.h/2) 
                 }
 
 walk i o s p = if p.active 
@@ -144,7 +144,7 @@ gameState = foldp stepGame defaultGame input
 
 make p = 
   if p.alive then rect p.w p.h |> filled p.objFill
-                                     |> move (p.x, p.y - halfHeight)
+                               |> move (p.x, p.y - halfHeight)
   else rect 0 0 |> filled gray
                 |> move (p.x, p.y - halfHeight)    
 
