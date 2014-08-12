@@ -9,23 +9,24 @@ import Generator.Standard
 import Tpoulsen.Lib (listToMaybe)
 
 ------ INPUTS ------
-type Input = { yDir:Int, fire:(Time, Bool), shift:Bool, swap:Bool,  sinceStart:Time, delta:Time }
+type Input = { yDir:Int, fire:(Time, Bool), shift:Bool, swap:Bool, pause:Bool, sinceStart:Time, delta:Time }
 
 delta = lift (\t -> t/8) (fps 60)
 
 input = sampleOn delta (Input <~ lift .y Keyboard.arrows
                                ~ Time.timestamp Keyboard.space
                                ~ Keyboard.shift
-                               ~ millisecond `Time.since`  Keyboard.isDown (Char.toCode 'C')
+                               ~ Keyboard.isDown (Char.toCode 'C')
+                               ~ Keyboard.isDown (Char.toCode 'P')
                                ~ every second
                                ~ delta)
 
 --startTime = 
 
 ------ MODEL -------
-data State        = Alive | Dead | Playing
+
 data WeaponTypes  = Blaster | WaveBeam | Bomb
-type Game p e w   = { player:(Player p w), enemies:[(Enemy e)], shots:[Projectiles], state:State, rGen:Generator.Generator Generator.Standard.Standard }
+type Game p e w   = { player:(Player p w), enemies:[(Enemy e)], shots:[Projectiles], paused:Bool, rGen:Generator.Generator Generator.Standard.Standard }
 type Player p w   = { p | x:Float, y:Float, vy:Float, weapons:[(Weapon w)], radius:Int, boost:Bool, score:Int, health:Int }
 type Enemy  e     = { e | x:Float, y:Float, vy:Float, sides:Int, radius:Float, alive:Bool, created:Time  }
 type Weapon w     = { w | kind:WeaponTypes, active:Bool, heat:Int, cooldown:Time, fillColor:Color }
@@ -33,7 +34,7 @@ type Projectiles  = { kind:WeaponTypes, x:Float, y:Float, vx:Float, vy:Float, al
 type GameObject o = { o | vx:Float} 
 
 --defaultGame : Game
-defaultGame = { player=player1, enemies=[enemy1], shots=[], state=Playing, rGen=gen }
+defaultGame = { player=player1, enemies=[enemy1], shots=[], paused=True, rGen=gen }
 
 --player1 : Player (GameObject {})
 player1 = { x=-halfWidth+padding, y=0, vx=0, vy=0, weapons=[weapon1, weapon2], radius=20, score=0, health=100, boost=False }
@@ -126,10 +127,12 @@ stepWeapons i g =
                    |> map (\x -> shotPhysics i.delta  . moveO i.delta 1 <| x)
 
 stepGame i g = 
-    { g | player <- stepPlayer i g
-        , enemies <- stepEnemies i g
-        , shots <- stepWeapons i g
-        , rGen <- snd <| genEnemies i.sinceStart g.rGen
+    { g | player <- if not g.paused then stepPlayer i g else g.player
+        , enemies <- if not g.paused then stepEnemies i g else g.enemies
+        , shots <- if not g.paused then stepWeapons i g else g.shots
+        , rGen <- if not g.paused then snd <| genEnemies i.sinceStart g.rGen else g.rGen
+        , paused <- if | i.pause -> not g.paused
+                       | otherwise -> g.paused
     }
 
 gameState = foldp stepGame defaultGame input
@@ -140,7 +143,7 @@ gameState = foldp stepGame defaultGame input
 padding = 50
 hud     = 50
 
-makeHud p s i = 
+makeHud p s paused i = 
     let equipped = activeWeapon p.weapons
         lastShot = s |> listToMaybe |> maybe 0 (\x -> x.fired)
     in if p.health > 0  
@@ -149,8 +152,13 @@ makeHud p s i =
               "Health: " ++ show p.health ++ "%" |> txt white |> toForm |> move (-halfWidth+padding*2, halfHeight-padding/2)
             , "Weapon: " ++ show equipped.kind |> txt equipped.fillColor |> toForm |> move (-halfWidth/2, halfHeight-padding/2)
             --, "Cooldown: " ++ show (max 0 <| equipped.cooldown + lastShot - i.sinceStart) |> txt white |> toForm
+            , "pewPew!" |> txt darkGreen |> toForm |> move (0, halfHeight-padding/2)
             --, "Score: " ++ show p.score |> txt white |> toForm |> move (0, halfHeight-padding/2)
             --, show (i.sinceStart) |> txt white |> toForm |> move (halfWidth-padding, halfHeight-padding/2)
+            , if paused 
+              then "PAUSED\n'p' to resume\n&uarr;&darr; to move\n'space' to shoot\n'shift' for boost\n'c' to change weapons" 
+                              |> txt white |> toForm 
+              else spacer 0 0 |> toForm           
             ]
         else spacer 1 1 |> toForm
 
@@ -174,7 +182,7 @@ makeEnemies e = if e.alive then
                           |> move (e.x, e.y)
     else spacer 1 1 |> toForm
 
-txt c = Text.leftAligned . monospace . Text.color c . toText 
+txt c = centered . monospace . Text.color c . toText 
 
 display : (Int, Int) -> Game p e w -> Input -> Element
 display (w, h) g i = 
@@ -182,7 +190,7 @@ display (w, h) g i =
     in container w h middle <| collage gameWidth gameHeight  <|
            concat [
               [ rect gameWidth gameHeight |> filled black
-              , makeHud g.player g.shots i            
+              , makeHud g.player g.shots g.paused i 
               , make g.player
               ], map makeShots g.shots, map makeEnemies g.enemies] 
 
