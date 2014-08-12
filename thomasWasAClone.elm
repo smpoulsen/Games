@@ -6,14 +6,8 @@ Inspired by Thomas Was Alone.
 import Char
 import Keyboard
 import Time
+import Tpoulsen.Lib (elem, listToMaybe)
 import Window
-
---CONVENIENCE FUNCTIONS
-elem x xs = any (\y -> y==x) xs
-
-listToMaybe : [a] -> Maybe a
-listToMaybe x = if | x == []   -> Nothing
-                   | otherwise -> Just (head x)
 
 --INPUTS
 type Input = { xDir:Int, yDir:Int, shift:Bool, key1:Bool, delta:Time }
