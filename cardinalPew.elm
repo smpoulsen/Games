@@ -48,7 +48,7 @@ randomSeed = 1
 gen = Generator.Standard.generator randomSeed
 
 genEnemies t g = let ([y',s',r'], g') = Generator.listOf (Generator.floatRange (-1, 1)) 3 g
-                     eY = clamp (-halfHeight+padding) (halfHeight-padding) <| y' * gameHeight
+                     eY = clamp (-halfHeight+eR) (halfHeight-eR) <| y' * gameHeight
                      eS = clamp 3 10 <| round <| (abs s') * 10
                      eR = clamp 5 30 <| (abs r') * 30 
                 in ({ x=halfWidth+100, y=eY, vx=-1, vy=0, sides=eS, radius=eR, alive=True, created=t }, g')
@@ -83,7 +83,7 @@ swapWeapons i p = { p | weapons <- if | i.swap -> map (\x -> { x | active <- not
 shoot i s p = 
     let w = activeWeapon p.weapons
         f = s |> listToMaybe |> maybe {kind=Blaster, x=halfWidth, y=0, vy=0, vx=3.0, radius=4.0, alive=True, fired=i.delta} (\x -> x)
-    in if (snd i.fire) && (fst i.fire) - f.fired >= w.cooldown 
+    in if p.health > 0 && (snd i.fire) && (fst i.fire) - f.fired >= w.cooldown 
        then { kind=w.kind, x=p.x+17, y=p.y, vy=0,
               vx=     if | w.kind == Blaster  -> 3.0
                          | w.kind == WaveBeam -> 5.0 
@@ -109,7 +109,8 @@ stepEnemies i g  =
     in map (\x -> physics i.delta . moveO i.delta (-1) . shotsHit g.shots <| x) es'
 
 stepWeapons i g = 
-    let cleanShots = filter (\o -> o.x <= halfWidth-padding ) g.shots
+    let cleanShots = g.shots |> filter (\o -> o.x <= halfWidth-padding) 
+                             |> filter (\s -> not <| any (\e -> collision s e) g.enemies)
     in  g.player |> shoot i cleanShots
                  |> map (\x -> physics i.delta <| moveO i.delta 1 <| x)
 
@@ -152,7 +153,9 @@ display (w, h) g i =
     container w h middle <| collage gameWidth gameHeight  <|
          concat [
             [ rect gameWidth gameHeight |> filled black
-            , "Health: "++ show g.player.health ++ "%" |> txt |> toForm |> move (-halfWidth+padding, halfHeight-padding/2)
+            , if g.player.health > 0 then 
+                "Health: "++ show g.player.health ++ "%" |> txt |> toForm |> move (-halfWidth+padding, halfHeight-padding/2)
+                else spacer 1 1 |> toForm
             , make g.player
             --, show i.sinceStart |> txt |> toForm |> move (halfWidth-(2*padding), halfHeight-padding)
             ], map makeShots g.shots, map makeEnemies g.enemies] 
