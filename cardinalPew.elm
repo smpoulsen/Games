@@ -6,10 +6,7 @@ import Window
 import Generator
 import Generator.Standard
 
-listToMaybe : [a] -> Maybe a
-listToMaybe x = if | x == []   -> Nothing
-                   | otherwise -> Just (head x)
-
+import Tpoulsen.Lib (listToMaybe)
 
 ------ INPUTS ------
 type Input = { yDir:Int, fire:(Time, Bool), shift:Bool, swap:Bool,  sinceStart:Time, delta:Time }
@@ -23,11 +20,13 @@ input = sampleOn delta (Input <~ lift .y Keyboard.arrows
                                ~ every second
                                ~ delta)
 
+--startTime = 
+
 ------ MODEL -------
 data State        = Alive | Dead | Playing
 data WeaponTypes  = Blaster | WaveBeam | Bomb
 type Game p e w   = { player:(Player p w), enemies:[(Enemy e)], shots:[Projectiles], state:State, rGen:Generator.Generator Generator.Standard.Standard }
-type Player p w   = { p | x:Float, y:Float, vy:Float, firing:Bool, weapons:[(Weapon w)], boost:Bool, health:Int }
+type Player p w   = { p | x:Float, y:Float, vy:Float, weapons:[(Weapon w)], boost:Bool, score:Int, health:Int }
 type Enemy  e     = { e | x:Float, y:Float, vy:Float, sides:Int, radius:Float, alive:Bool, created:Time  }
 type Weapon w     = { w | kind:WeaponTypes, active:Bool, cooldown:Time }
 type Projectiles  = { kind:WeaponTypes, x:Float, y:Float, vx:Float, vy:Float, alive:Bool, radius:Float, fired:Time }
@@ -37,7 +36,7 @@ type GameObject o = { o | vx:Float}
 defaultGame = { player=player1, enemies=[enemy1, enemy2], shots=[], state=Playing, rGen=gen }
 
 --player1 : Player (GameObject {})
-player1 = { x=-halfWidth+padding, y=0, vx=0, vy=0, firing=False, weapons=[weapon1, weapon2], health=100, boost=False }
+player1 = { x=-halfWidth+padding, y=0, vx=0, vy=0, weapons=[weapon1, weapon2], score=0, health=100, boost=False }
 weapon1 = { kind=Blaster, active=True,   cooldown=(50 * millisecond), x=0, y=0, vx=0, alive=False }
 weapon2 = { kind=WaveBeam, active=False, cooldown=(millisecond), x=0, y=0, vx=0, alive=False }
 enemy1 =  { x=halfWidth+100, y=0, vx=-1, vy=0, sides=5, radius=30, alive=True, created=0.0 }
@@ -48,9 +47,9 @@ randomSeed = 1
 gen = Generator.Standard.generator randomSeed
 
 genEnemies t g = let ([y',s',r'], g') = Generator.listOf (Generator.floatRange (-1, 1)) 3 g
-                     eY = clamp (-halfHeight+eR) (halfHeight-eR) <| y' * gameHeight
+                     eY = clamp (-halfHeight+eR) (halfHeight-hud-eR) <| y' * halfHeight
                      eS = clamp 3 10 <| round <| (abs s') * 10
-                     eR = clamp 5 30 <| (abs r') * 30 
+                     eR = clamp 10 30 <| (abs r') * 30 
                 in ({ x=halfWidth+100, y=eY, vx=-1, vy=0, sides=eS, radius=eR, alive=True, created=t }, g')
 
 ------ UPDATE ------
@@ -65,10 +64,15 @@ moveP yDir boost p = if p.health > 0
 --Objects need to constantly move <-; Relies on time.
 moveO t n o = { o | vx <- n*t/10     }
 
-physics t p = { p | y <- p.y + t * p.vy * 2 |> clamp (-halfHeight) (halfHeight)
+physics t p = { p | y <- p.y + t * p.vy * 2 |> clamp (-halfHeight) (halfHeight-hud)
                   , x <- p.x + t * p.vx * 10 }
 
+shotPhysics t s  = { s | y <-  s.y |> clamp (-halfHeight) (halfHeight-hud)
+                      , x <- s.x + t * s.vx * 10 }
+
 healthLost es p = { p | health <- p.health - (length es) }
+
+--scoreMod p s es = 
 
 outOfBounds o = o.x > halfWidth || o.x < -halfWidth
 
@@ -80,7 +84,7 @@ activeWeapon ws = ws |> listToMaybe . filter (\x -> x.active)
 swapWeapons i p = { p | weapons <- if | i.swap -> map (\x -> { x | active <- not x.active }) p.weapons
                                       | otherwise -> p.weapons }
        
-shoot i s p = 
+shoot i p s = 
     let w = activeWeapon p.weapons
         f = s |> listToMaybe |> maybe {kind=Blaster, x=halfWidth, y=0, vy=0, vx=3.0, radius=4.0, alive=True, fired=i.delta} (\x -> x)
     in if p.health > 0 && (snd i.fire) && (fst i.fire) - f.fired >= w.cooldown 
@@ -105,14 +109,19 @@ stepPlayer i g =
 stepEnemies i g  = 
     let inPlay = filter (\e -> e.x >= -halfWidth && e.alive) (g.enemies)
         lastC  = head inPlay
-        es' = if (i.sinceStart - lastC.created >= 0.5) then (fst <| genEnemies i.sinceStart g.rGen) :: inPlay else inPlay
+        dead   = filter (\e -> not e.alive) g.enemies
+        es'    = if (i.sinceStart - lastC.created >= 0.5) 
+                 then (fst <| genEnemies i.sinceStart g.rGen) :: inPlay 
+                 else inPlay
     in map (\x -> physics i.delta . moveO i.delta (-1) . shotsHit g.shots <| x) es'
 
 stepWeapons i g = 
     let cleanShots = g.shots |> filter (\o -> o.x <= halfWidth-padding) 
-                             |> filter (\s -> not <| any (\e -> collision s e) g.enemies)
-    in  g.player |> shoot i cleanShots
-                 |> map (\x -> physics i.delta <| moveO i.delta 1 <| x)
+                             |> filter (\s -> if s.kind == Blaster 
+                                              then not <| any (\e -> collision s e) g.enemies
+                                              else s.alive)
+    in  cleanShots |> shoot i g.player
+                   |> map (\x -> shotPhysics i.delta  . moveO i.delta 1 <| x)
 
 stepGame i g = 
     { g | player <- stepPlayer i g
@@ -127,6 +136,17 @@ gameState = foldp stepGame defaultGame input
 (gameWidth, gameHeight) = (1000, 600)
 (halfWidth, halfHeight) = (gameWidth/2, gameHeight/2)
 padding = 50
+hud     = 50
+
+makeHud p i = 
+    if p.health > 0  
+    then group 
+        [
+          "Health: "++ show p.health ++ "%" |> txt |> toForm |> move (-halfWidth+padding, halfHeight-padding/2)
+        , "Score: " ++ show p.score |> txt |> toForm |> move (0, halfHeight-padding/2)
+        , show (i.sinceStart) |> txt |> toForm |> move (halfWidth-padding, halfHeight-padding/2)
+        ]
+    else spacer 1 1 |> toForm
 
 make p = 
     if p.health > 0 then
@@ -153,11 +173,8 @@ display (w, h) g i =
     container w h middle <| collage gameWidth gameHeight  <|
          concat [
             [ rect gameWidth gameHeight |> filled black
-            , if g.player.health > 0 then 
-                "Health: "++ show g.player.health ++ "%" |> txt |> toForm |> move (-halfWidth+padding, halfHeight-padding/2)
-                else spacer 1 1 |> toForm
+            , makeHud g.player i            
             , make g.player
-            --, show i.sinceStart |> txt |> toForm |> move (halfWidth-(2*padding), halfHeight-padding)
             ], map makeShots g.shots, map makeEnemies g.enemies] 
 
 main = lift3 display Window.dimensions gameState input
