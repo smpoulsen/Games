@@ -207,7 +207,7 @@ stepPlayState i g =
 stepGame i g = 
     let paused = g.playState == Paused
         playState' = stepPlayState i g
-    in if i.restart && paused
+    in if i.restart && (paused || g.player.health <= 0)
        then defaultGame
        else
         { g | player     <- if not paused then stepPlayer    i g else g.player
