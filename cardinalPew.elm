@@ -27,16 +27,16 @@ input = sampleOn delta (Input <~ lift .y Keyboard.arrows
 
 data WeaponTypes  = Blaster | WaveBeam | Bomb
 type Game p e w   = { player:(Player p w), enemies:[(Enemy e)], shots:[Projectiles], paused:Bool, rGen:Generator.Generator Generator.Standard.Standard }
-type Player p w   = { p | x:Float, y:Float, vy:Float, weapons:[(Weapon w)], radius:Int, boost:Bool, score:Int, health:Int }
-type Enemy  e     = { e | x:Float, y:Float, vy:Float, sides:Int, radius:Float, alive:Bool, created:Time  }
+type Player p w   = { p | weapons:[(Weapon w)], boost:Bool, score:Int, health:Int }
+type Enemy  e     = { e | sides:Int, alive:Bool, created:Time  }
 type Weapon w     = { w | kind:WeaponTypes, active:Bool, heat:Int, cooldown:Time, fillColor:Color }
-type Projectiles  = { kind:WeaponTypes, x:Float, y:Float, vx:Float, vy:Float, alive:Bool, radius:Float, fired:Time }
-type GameObject o = { o | vx:Float} 
+type Projectiles  = { kind:WeaponTypes, alive:Bool, fired:Time }
+type GameObject o = { o | x:Float, y:Float, vy:Float, vx:Float, radius:Float} 
 
 --defaultGame : Game
 defaultGame = { player=player1, enemies=[enemy1], shots=[], paused=True, rGen=gen }
 
---player1 : Player (GameObject {})
+--player1 : Player (GameObject {}) (Weapon (GameObject {}))
 player1 = { x=-halfWidth+padding, y=0, vx=0, vy=0, weapons=[weapon1, weapon2], radius=20, score=0, health=100, boost=False }
 weapon1 = { kind=Blaster, active=True,   heat=0, cooldown=(50 * millisecond), fillColor=red }
 weapon2 = { kind=WaveBeam, active=False, heat=0, cooldown=(second), fillColor=purple }
@@ -174,17 +174,17 @@ makeShots s =
                   | s.kind == WaveBeam -> purple
                   | otherwise -> lightBlue
     in circle s.radius |> outlined (solid fill)
-                    |> move (s.x, s.y)
+                       |> move (s.x, s.y)
 
-
-makeEnemies e = if e.alive then 
-    ngon e.sides e.radius |> outlined (solid white)
-                          |> move (e.x, e.y)
+--makeEnemies : Enemy e -> Form
+makeEnemies enemy = if enemy.alive then 
+    ngon enemy.sides enemy.radius |> outlined (solid white)
+                                  |> move (enemy.x, enemy.y)
     else spacer 1 1 |> toForm
 
 txt c = centered . monospace . Text.color c . toText 
 
-display : (Int, Int) -> Game p e w -> Input -> Element
+--display : (Int, Int) -> Game p e w -> Input -> Element
 display (w, h) g i = 
     let equipped = activeWeapon g.player.weapons
     in container w h middle <| collage gameWidth gameHeight  <|

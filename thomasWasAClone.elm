@@ -27,8 +27,20 @@ type Player       = { x:Float, y:Float, vx:Float, vy:Float, w:Float, h:Float
                     , jumpingV:Float, objFill:Color, active:Bool, alive:Bool }
 type Obstacle     = { x:Float, y:Float, w:Float, h:Float, objFill:Color }
 type Game         = { characters:[Player], obstacles:[Obstacle], state:WinState }
-type GameObject a = { a | x:Float, y:Float, w:Float, h:Float }
 
+--Player
+player1 : Player
+player1  = { x=-390, y=50, vx=0, vy=0, w=10, h=50, jumpingV=8.0, 
+              objFill=red, active=True, alive=True }
+--Constant Obstacles
+mapFloor : Obstacle
+mapFloor = { x=-halfWidth, y=0, w= halfWidth, h=50, objFill=lightGreen }
+death : Obstacle
+death    = { x=-halfWidth, y=0, w= mainWidth, h=0, objFill=black }
+mapSky : Obstacle
+mapSky   = { x=halfWidth-250, y=halfHeight, w=3*mainWidth, h=mainHeight, objFill=lightBlue }
+
+--Default game
 defaultGame : Game
 defaultGame = { characters   = [player1]
               , obstacles    = [ mapSky, mapFloor
@@ -45,29 +57,15 @@ defaultGame = { characters   = [player1]
               , state = InPlay
               }
 
-mapFloor : Obstacle
-mapFloor = { x=-halfWidth, y=0, w= halfWidth, h=50, objFill=lightGreen }
-death : Obstacle
-death    = { x=-halfWidth, y=0, w= mainWidth, h=0, objFill=black }
-mapSky : Obstacle
-mapSky   = { x=halfWidth-250, y=halfHeight, w=3*mainWidth, h=mainHeight, objFill=lightBlue }
-player1 : Player
-player1  = { x=-390, y=50, vx=0, vy=0, w=10, h=50, jumpingV=8.0, 
-              objFill=red, active=True, alive=True }
-player2 : Player
-player2  = { x=90, y=0, vx=0, vy=0, w=25, h=25, jumpingV=5.0, 
-             objFill=blue, active=False, alive=True }
-
 --UPDATE
-
 --Collision detection:
-collision : Player -> GameObject a -> Bool
+collision : Player -> Obstacle -> Bool
 collision p obj = (p.x >= (obj.x - obj.w/2 - p.w/2) && 
                   p.x <= (obj.x + obj.w/2 + p.w/2)) && 
                   (p.y - p.h/2 >= (obj.y + obj.h/2) && 
                   p.y  - p.h/2 <= (obj.y + obj.h/2  + p.h/2))
 
-walkingInto : Player -> GameObject a -> Bool
+walkingInto : Player -> Obstacle -> Bool
 walkingInto p obj = (p.x <= (obj.x - obj.w/2 - p.w/2) || p.x >= (obj.x + obj.w/2 + p.w/2)) &&
                     (obj.y `elem` [p.y-p.h/2..p.y+p.h/2])
 
