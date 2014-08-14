@@ -10,7 +10,7 @@ import Generator.Standard
 import Tpoulsen.Lib (listToMaybe)
 
 ------ INPUTS ------
-type Input = { yDir:Int, fire:(Time, Bool), shift:Bool, swap:(Time, Bool), pause:(Time, Bool), sinceStart:Time, delta:Time }
+type Input = { yDir:Int, fire:(Time, Bool), shift:Bool, swap:(Time, Bool), restart:Bool, pause:(Time, Bool), sinceStart:Time, delta:Time }
 
 delta : Signal Time
 delta = lift (\t -> t/9) (fps 60)
@@ -20,6 +20,7 @@ input = sampleOn delta (Input <~ lift .y Keyboard.arrows
                                ~ Time.timestamp Keyboard.space
                                ~ Keyboard.shift
                                ~ Time.timestamp (Keyboard.isDown (Char.toCode 'C'))
+                               ~ Keyboard.isDown (Char.toCode 'R')
                                ~ Time.timestamp (Keyboard.isDown (Char.toCode 'P'))
                                ~ every (second)
                                ~ delta )
@@ -105,7 +106,7 @@ genericPhysics t p = { p | y <- p.y + t * p.vy * 2 |> clamp (-halfHeight+padding
 
 shotPhysics : Time -> ShotO -> ShotO 
 shotPhysics t s  = { s | y <- if | s.kind /= WaveBeam -> s.y  |> clamp (-halfHeight) (halfHeight-hud)
-                                 | otherwise -> s.y - 2*(sin <| (s.x)/50 ) |> clamp (-halfHeight) (halfHeight-hud)
+                                 | otherwise -> s.y - 2*(sin <| (s.x)/50 ) |> clamp (-halfHeight) (halfHeight)
                        , x <- if | s.kind /= WaveBeam -> s.x + t * s.vx * 15
                                  | otherwise  -> s.x + t * s.vx * 25 }
 
@@ -206,16 +207,19 @@ stepPlayState i g =
 stepGame i g = 
     let paused = g.playState == Paused
         playState' = stepPlayState i g
-    in { g | player     <- if not paused then stepPlayer    i g else g.player
-           , enemies    <- if not paused then stepEnemies   i g else g.enemies
-           , shots      <- if not paused then stepWeapons   i g else g.shots
-           , particles  <- if not paused then stepParticles i g else g.particles
-           , rGen       <- if not paused then snd <| genEnemies i.sinceStart g.rGen else g.rGen
-           , score      <- if not paused then scoreMod g.score g.enemies else g.score
-           , totalShots <- if not paused then addShots i g else g.totalShots
-           , playState  <- playState'
-           , paused     <- if g.playState /= playState' then (fst i.pause) else g.paused
-       }
+    in if i.restart && paused
+       then defaultGame
+       else
+        { g | player     <- if not paused then stepPlayer    i g else g.player
+            , enemies    <- if not paused then stepEnemies   i g else g.enemies
+            , shots      <- if not paused then stepWeapons   i g else g.shots
+            , particles  <- if not paused then stepParticles i g else g.particles
+            , rGen       <- if not paused then snd <| genEnemies i.sinceStart g.rGen else g.rGen
+            , score      <- if not paused then scoreMod g.score g.enemies else g.score
+            , totalShots <- if not paused then addShots i g else g.totalShots
+            , playState  <- playState'
+            , paused     <- if g.playState /= playState' then (fst i.pause) else g.paused
+        }
 
 gameState : Signal GameOs
 gameState = foldp stepGame defaultGame input
@@ -242,7 +246,7 @@ makeHud g i =
             , "Weapon: " ++ show equipped.kind |> txt equipped.fillColor |> toForm |> move (-halfWidth/2.5, halfHeight-padding/2)
             , "Score: " ++ score |> txt white |> toForm |> move (halfWidth-padding*2, halfHeight-padding/2)
             , if paused 
-              then "PAUSED\n'p' to resume\n&uarr;&darr; to move\n'space' to shoot\n'shift' for boost\n'c' to change weapons" 
+              then "PAUSED\n'p' to resume\n&uarr;&darr; to move\n'space' to shoot\n'shift' for boost\n'c' to change weapons\n'r' to restart (only from paused)" 
                               |> txt white |> toForm 
               else spacer 0 0 |> toForm           
             ]
@@ -256,7 +260,7 @@ makeDeathScreen g =
              , "Final Score:  " ++ finalScore |> txt white |> toForm |> move (0, padding)
              , "Total Shots:  " ++ totalShots |> txt white |> toForm |> move (0, 0)
              , "Accuracy:     " ++  accuracy  ++ "%" |> txt white |> toForm |> move (0, -padding)
-             , "Refresh to play again!" |> txt white |> toForm |> move (0, -padding*2)
+             , "Press 'r' to play again!" |> txt white |> toForm |> move (0, -padding*2)
              ]
 
 make : PlayerO -> Form
