@@ -71,27 +71,13 @@ genEnemies t g = let ([y',s',r'], g') = Generator.listOf (Generator.floatRange (
 
 ------ UPDATE ------
 
-{-
-particleExplosion : GameObject {} -> GameObject {} -> [GameObject {}] -> [GameObject {}]
-particleExplosion o1 o2 ps = 
-    if collision o1 o2 then (createParticles o2) ++ ps 
-       else ps
--}
-{-
-createParticles : EnemyO -> [Particle]
-createParticles o = [ { x=o.x, y=o.y, vx=o.vx*2,  vy=0,  radius=2, alive=True }
-                    , { x=o.x, y=o.y, vx=-o.vx*2, vy=0,  radius=2, alive=True }
-                    , { x=o.x, y=o.y, vx=0,     vy=-1, radius=2, alive=True }
-                    , { x=o.x, y=o.y, vx=0,     vy=1,  radius=2, alive=True }
-                    ]
--}
-genParticles : StdGen -> EnemyO -> ([Particle], StdGen)
-genParticles g o= 
+genParticles : StdGen -> EnemyO -> (StdGen, Particle)
+genParticles g o = 
     let ([vx',vy',r'], g') = Generator.listOf (Generator.floatRange (-1, 1)) 3 g
-        pVx = vx' * 10
+        pVx = vx' * 100 
         pVy = vy' * 10
         pR  = r' * 5 |> clamp 2 5
-    in  ([ { x=o.x, y=o.y, vx=pVx,  vy=pVy,  radius=pR, alive=True }], g' )
+    in  (g',{ x=o.x, y=o.y, vx=pVx,  vy=pVy,  radius=pR, alive=True })
 
 collision : GameObject o -> GameObject o -> Bool
 collision o1 o2 = (o1.x >= o2.x - o2.radius && 
@@ -108,10 +94,13 @@ moveP yDir boost p =
 
 --Objects need to constantly move <-; Relies on time.
 moveO : Time -> Float -> GameObject o -> GameObject o
-moveO t n o = { o | vx <- n*t/10     }
+moveO t n o = { o | vx <- n*t/10  }
 
-physics : Time -> GameObject o -> GameObject o
-physics t p = { p | y <- p.y + t * p.vy * 2 |> clamp (-halfHeight+padding/2) (halfHeight-hud)
+moveParticles : Time -> Particle -> Particle
+moveParticles t p = { p | vx <- t/10  }
+
+genericPhysics : Time -> GameObject o -> GameObject o
+genericPhysics t p = { p | y <- p.y + t * p.vy * 2 |> clamp (-halfHeight+padding/2) (halfHeight-hud)
                   , x <- p.x + t * p.vx * 10 }
 
 shotPhysics : Time -> ShotO -> ShotO 
@@ -119,6 +108,10 @@ shotPhysics t s  = { s | y <- if | s.kind /= WaveBeam -> s.y  |> clamp (-halfHei
                                  | otherwise -> s.y - 2*(sin <| (s.x)/50 ) |> clamp (-halfHeight) (halfHeight-hud)
                        , x <- if | s.kind /= WaveBeam -> s.x + t * s.vx * 15
                                  | otherwise  -> s.x + t * s.vx * 25 }
+
+particlePhysics : Time -> GameObject o -> GameObject o
+particlePhysics t p = { p | y <- p.y + t * p.vy * 2 |> clamp (-halfHeight) (halfHeight)
+                  , x <- p.x + t * p.vx * 50 }
 
 healthLost : [EnemyO] -> PlayerO -> PlayerO
 healthLost es p = 
@@ -176,7 +169,7 @@ addShots i g =
 
 --STEPPERS
 --stepPlayer : Input -> Game PlayerO EnemyO ShotO -> Game PlayerO EnemyO ShotO
-stepPlayer i g = g.player |> healthLost g.enemies . physics i.delta . moveP i.yDir i.shift . swapWeapons i
+stepPlayer i g = g.player |> healthLost g.enemies . genericPhysics i.delta . moveP i.yDir i.shift . swapWeapons i
 
 
 stepEnemies i g  = 
@@ -185,7 +178,7 @@ stepEnemies i g  =
         es'    = if (i.sinceStart - lastC.created >= 0.5) 
                  then (fst <| genEnemies i.sinceStart g.rGen) :: inPlay 
                  else inPlay
-    in map (\x -> physics i.delta . moveO i.delta (-1) . shotsHit g.shots <| x) es'
+    in map (\x -> genericPhysics i.delta . moveO i.delta (-1) . shotsHit g.shots <| x) es'
 
 stepWeapons i g = 
     let cleanShots = g.shots |> filter (\o -> not . outOfBounds <| o) 
@@ -196,10 +189,13 @@ stepWeapons i g =
                    |> map (\x -> shotPhysics i.delta  . moveO i.delta 1 <| x)
 
 stepParticles i g =
-    let currentPs = filter (\p -> not . outOfBounds <| p) g.particles
-        deadEs    = filter (\e -> not e.alive) g.enemies
-        newPs     =  concatMap (\e -> fst . (genParticles g.rGen) <| e) deadEs
-    in (newPs ++ currentPs) |> map (\x -> physics i.delta . moveO i.delta (1) <| x)
+    let currentPs          = filter (\p -> not . outOfBounds <| p) g.particles
+        deadEs             = filter (\e -> not e.alive) g.enemies
+        (newGs, newPs)     = unzip . map (\e -> genParticles g.rGen        <| e) <| deadEs
+        (newGs', newPs')   = unzip . map (\e -> genParticles (head newGs)  <| e) <| deadEs
+        (newGs'', newPs'') = unzip . map (\e -> genParticles (head newGs') <| e) <| deadEs
+        allParticles       = concat [newPs, newPs', newPs'', currentPs]
+    in allParticles |> map (\x -> particlePhysics i.delta . moveParticles i.delta <| x)
 
 stepPlayState i g =
     if (snd i.pause) && (fst i.pause) - g.paused > 5
@@ -210,9 +206,9 @@ stepPlayState i g =
 stepGame i g = 
     let paused = g.playState == Paused
         playState' = stepPlayState i g
-    in { g | player     <- if not paused then stepPlayer i g    else g.player
-           , enemies    <- if not paused then stepEnemies i g   else g.enemies
-           , shots      <- if not paused then stepWeapons i g   else g.shots
+    in { g | player     <- if not paused then stepPlayer    i g else g.player
+           , enemies    <- if not paused then stepEnemies   i g else g.enemies
+           , shots      <- if not paused then stepWeapons   i g else g.shots
            , particles  <- if not paused then stepParticles i g else g.particles
            , rGen       <- if not paused then snd <| genEnemies i.sinceStart g.rGen else g.rGen
            , score      <- if not paused then scoreMod g.score g.enemies else g.score
@@ -288,7 +284,7 @@ makeParticles : Particle -> Form
 makeParticles p = 
     let particleGradient = 
         radial (0,0) p.radius (7,-15) 50
-          [ (   0, red)
+          [ (   0, yellow)
           , (0.75, lightRed)
           , (   1, white)
           ]
