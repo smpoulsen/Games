@@ -39,16 +39,16 @@ data WeaponTypes  = Blaster | WaveBeam | Bomb
 type Game p e s   = { player:(Player p), enemies:[(Enemy e)], shots:[(Shot s)], score:Int
                     , totalShots:Int, paused:Time, playState:PlayState, rGen:StdGen }
 type Player p     = { p | weapons:[Weapon], boost:Bool, health:Int }
-type Enemy  e     = { e | sides:Int, alive:Bool, created:Time  }
+type Enemy  e     = { e | sides:Int, created:Time  }
 type Weapon       = { kind:WeaponTypes, active:Bool, cooldown:Time, lastSwapped:Time, fillColor:Color }
-type Shot   s     = { s | kind:WeaponTypes, alive:Bool, filightRed:Time }
-type GameObject o = { o | x:Float, y:Float, vy:Float, vx:Float, radius:Float} 
+type Shot   s     = { s | kind:WeaponTypes, filightRed:Time }
+type GameObject o = { o | x:Float, y:Float, vy:Float, vx:Float, radius:Float, alive:Bool} 
 
 defaultGame : GameOs
 defaultGame = { player=player1, enemies=[enemy1], shots=[], score=0, totalShots=0, paused=0, playState=Paused, rGen=gen }
 
 player1 : PlayerO
-player1 = { x=-halfWidth+padding, y=0, vx=0, vy=0, weapons=[weapon1, weapon2], radius=20, health=100, boost=False }
+player1 = { x=-halfWidth+padding, y=0, vx=0, vy=0, weapons=[weapon1, weapon2], radius=20, health=100, boost=False, alive=True }
 weapon1 : Weapon
 weapon1 = { kind=Blaster, active=True,   cooldown=(50 * millisecond), lastSwapped=0, fillColor=lightRed }
 weapon2 : Weapon
@@ -107,7 +107,7 @@ scoreMod s es =
     in s + dead
 
 outOfBounds : GameObject o -> Bool
-outOfBounds o = o.x > halfWidth || o.x < -halfWidth
+outOfBounds o = o.x > halfWidth+100 || o.x < -halfWidth || (not o.alive)
 
 --WEAPONS
 activeWeapon : [Weapon] -> Weapon
@@ -156,7 +156,7 @@ stepPlayer i g = g.player |> healthLost g.enemies . physics i.delta . moveP i.yD
 
 
 stepEnemies i g  = 
-    let inPlay = filter (\e -> e.x >= -halfWidth && e.alive) (g.enemies)
+    let inPlay = filter (\e -> not . outOfBounds <| e) g.enemies
         lastC  = head inPlay
         es'    = if (i.sinceStart - lastC.created >= 0.5) 
                  then (fst <| genEnemies i.sinceStart g.rGen) :: inPlay 
@@ -164,7 +164,7 @@ stepEnemies i g  =
     in map (\x -> physics i.delta . moveO i.delta (-1) . shotsHit g.shots <| x) es'
 
 stepWeapons i g = 
-    let cleanShots = g.shots |> filter (\o -> o.x <= halfWidth) 
+    let cleanShots = g.shots |> filter (\o -> not . outOfBounds <| o) 
                              |> filter (\s -> if s.kind == Blaster 
                                               then not <| any (\e -> collision s e) g.enemies
                                               else s.alive)
