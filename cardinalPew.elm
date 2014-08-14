@@ -77,12 +77,21 @@ particleExplosion o1 o2 ps =
     if collision o1 o2 then (createParticles o2) ++ ps 
        else ps
 -}
+{-
 createParticles : EnemyO -> [Particle]
-createParticles o = [ { x=o.x, y=o.y, vx=o.vx,  vy=0,  radius=2, alive=True }
-                    , { x=o.x, y=o.y, vx=-o.vx, vy=0,  radius=2, alive=True }
+createParticles o = [ { x=o.x, y=o.y, vx=o.vx*2,  vy=0,  radius=2, alive=True }
+                    , { x=o.x, y=o.y, vx=-o.vx*2, vy=0,  radius=2, alive=True }
                     , { x=o.x, y=o.y, vx=0,     vy=-1, radius=2, alive=True }
                     , { x=o.x, y=o.y, vx=0,     vy=1,  radius=2, alive=True }
                     ]
+-}
+genParticles : StdGen -> EnemyO -> ([Particle], StdGen)
+genParticles g o= 
+    let ([vx',vy',r'], g') = Generator.listOf (Generator.floatRange (-1, 1)) 3 g
+        pVx = vx' * 10
+        pVy = vy' * 10
+        pR  = r' * 5 |> clamp 2 5
+    in  ([ { x=o.x, y=o.y, vx=pVx,  vy=pVy,  radius=pR, alive=True }], g' )
 
 collision : GameObject o -> GameObject o -> Bool
 collision o1 o2 = (o1.x >= o2.x - o2.radius && 
@@ -189,8 +198,8 @@ stepWeapons i g =
 stepParticles i g =
     let currentPs = filter (\p -> not . outOfBounds <| p) g.particles
         deadEs    = filter (\e -> not e.alive) g.enemies
-        newPs     = (concatMap (\e -> createParticles e) deadEs) ++ currentPs
-    in newPs |> map (\x -> physics i.delta . moveO i.delta (1) <| x)
+        newPs     =  concatMap (\e -> fst . (genParticles g.rGen) <| e) deadEs
+    in (newPs ++ currentPs) |> map (\x -> physics i.delta . moveO i.delta (1) <| x)
 
 stepPlayState i g =
     if (snd i.pause) && (fst i.pause) - g.paused > 5
@@ -277,8 +286,14 @@ makeEnemies enemy = if enemy.alive then
 
 makeParticles : Particle -> Form
 makeParticles p = 
-    circle p.radius |> filled white
-                    |> move (p.x, p.y)
+    let particleGradient = 
+        radial (0,0) p.radius (7,-15) 50
+          [ (   0, red)
+          , (0.75, lightRed)
+          , (   1, white)
+          ]
+    in circle p.radius |> gradient particleGradient
+                       |> move (p.x, p.y)
 
 
 display : (Int, Int) -> GameOs -> Input -> Element
