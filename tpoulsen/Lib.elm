@@ -1,6 +1,7 @@
 module Tpoulsen.Lib where
 
 ---LIST---
+elem : a -> [a] -> Bool
 elem x xs = any (\y -> y==x) xs
 
 ---MAYBE---
