@@ -64,21 +64,22 @@ gen : StdGen
 gen = Generator.Standard.generator randomSeed
 
 genEnemies : Time -> StdGen -> (EnemyO, StdGen)
-genEnemies t g = let ([y',s',r'], g') = Generator.listOf (Generator.floatRange (-1, 1)) 3 g
-                     eY = clamp (-halfHeight+padding/2) (halfHeight-hud-eR) <| y' * halfHeight
-                     eS = clamp 3 10 <| round <| (abs s') * 10
-                     eR = clamp 10 30 <| (abs r') * 30 
-                in ({ x=halfWidth+100, y=eY, vx=-1, vy=0, sides=eS, radius=eR, alive=True, created=t }, g')
+genEnemies t g = 
+  let ([y',vx', s',r'], g') = Generator.listOf (Generator.floatRange (-1, 1)) 4 g
+      eY  = clamp (-halfHeight+padding/2) (halfHeight-hud-eR) <| y' * halfHeight
+      eVx = (abs vx')*(-4) |> clamp -2 -3  
+      eS  = clamp 3 10  <| round <| (abs s') * 10
+      eR  = clamp 10 30 <| (abs r') * 30 
+  in ({ x=halfWidth+100, y=eY, vx=eVx, vy=0, sides=eS, radius=eR, alive=True, created=t }, g')
 
 ------ UPDATE ------
 
 genParticles : StdGen -> EnemyO -> (StdGen, Particle)
 genParticles g o = 
-    let ([vx',vy',r'], g') = Generator.listOf (Generator.floatRange (-1, 1)) 3 g
+    let ([vx',vy'], g') = Generator.listOf (Generator.floatRange (-1, 1)) 2 g
         pVx = vx' * 100 
         pVy = vy' * 10
-        pR  = r' * 5 |> clamp 2 5
-    in  (g',{ x=o.x, y=o.y, vx=pVx,  vy=pVy,  radius=pR, alive=True })
+    in  (g',{ x=o.x, y=o.y, vx=pVx,  vy=pVy,  radius=o.radius, alive=True })
 
 collision : GameObject o -> GameObject o -> Bool
 collision o1 o2 = (o1.x >= o2.x - o2.radius && 
@@ -89,26 +90,28 @@ collision o1 o2 = (o1.x >= o2.x - o2.radius &&
 moveP : Int -> Bool -> PlayerO -> PlayerO
 moveP yDir boost p = 
     if p.health > 0 
-    then { p | vy <- if | boost     -> toFloat <| 4 * yDir
+    then { p | vy <- if | boost     -> toFloat <| 6 * yDir
                         | otherwise -> toFloat <| 2 * yDir }
     else p
 
 --Objects need to constantly move <-; Relies on time.
-moveO : Time -> Float -> GameObject o -> GameObject o
-moveO t n o = { o | vx <- n*t/10  }
+moveO : Time -> GameObject o -> GameObject o
+moveO t o = if | o.vx > 0 -> { o | vx <- o.vx  }
+               | o.vx < 0 -> { o | vx <- o.vx }
+               | otherwise -> o
 
 moveParticles : Time -> Particle -> Particle
 moveParticles t p = { p | vx <- t/10  }
 
 genericPhysics : Time -> GameObject o -> GameObject o
-genericPhysics t p = { p | y <- p.y + t * p.vy * 2 |> clamp (-halfHeight+padding/2) (halfHeight-hud)
-                  , x <- p.x + t * p.vx * 10 }
+genericPhysics t p = { p | y <- p.y + t * p.vy  |> clamp (-halfHeight+padding/2) (halfHeight-hud)
+                         , x <- p.x + t * p.vx  }
 
 shotPhysics : Time -> ShotO -> ShotO 
 shotPhysics t s  = { s | y <- if | s.kind /= WaveBeam -> s.y  |> clamp (-halfHeight) (halfHeight-hud)
                                  | otherwise -> s.y - 2*(sin <| (s.x)/50 ) |> clamp (-halfHeight) (halfHeight)
-                       , x <- if | s.kind /= WaveBeam -> s.x + t * s.vx * 15
-                                 | otherwise  -> s.x + t * s.vx * 25 }
+                       , x <- if | s.kind /= WaveBeam -> s.x + t * s.vx 
+                                 | otherwise  -> s.x + t * s.vx  }
 
 particlePhysics : Time -> GameObject o -> GameObject o
 particlePhysics t p = { p | y <- p.y + t * p.vy * 2 |> clamp (-halfHeight) (halfHeight)
@@ -158,10 +161,10 @@ shoot i p s =
     in if shotCanFire i p s
        then 
             if w.kind == Blaster 
-            then { kind=w.kind, x=p.x+17, y=p.y, vy=0,    vx=3.0,  radius=4.0, alive=True, fired=(fst i.fire) } :: s
-            else { kind=w.kind, x=p.x+17, y=p.y+15, vy=0, vx=20.0, radius=6.0, alive=True, fired=(fst i.fire) } ::
-                 { kind=w.kind, x=p.x+17, y=p.y, vy=0,    vx=20.0, radius=6.0, alive=True, fired=(fst i.fire) } ::
-                 { kind=w.kind, x=p.x+17, y=p.y-15, vy=0, vx=20.0, radius=6.0, alive=True, fired=(fst i.fire) } :: s
+            then { kind=w.kind, x=p.x+17, y=p.y, vy=0,    vx=5.0,  radius=4.0, alive=True, fired=(fst i.fire) } :: s
+            else { kind=w.kind, x=p.x+17, y=p.y+15, vy=0, vx=10.0, radius=6.0, alive=True, fired=(fst i.fire) } ::
+                 { kind=w.kind, x=p.x+17, y=p.y, vy=0,    vx=10.0, radius=6.0, alive=True, fired=(fst i.fire) } ::
+                 { kind=w.kind, x=p.x+17, y=p.y-15, vy=0, vx=10.0, radius=6.0, alive=True, fired=(fst i.fire) } :: s
        else s 
 
 shotsHit : [ShotO] -> EnemyO -> EnemyO
@@ -184,7 +187,7 @@ stepEnemies i g  =
         es'    = if (i.sinceStart - lastC.created >= 0.5) 
                  then (fst <| genEnemies i.sinceStart g.rGen) :: inPlay 
                  else inPlay
-    in map (\x -> genericPhysics i.delta . moveO i.delta (-1) . shotsHit g.shots <| x) es'
+    in map (\x -> genericPhysics i.delta . moveO i.delta . shotsHit g.shots <| x) es'
 
 stepWeapons i g = 
     let cleanShots = g.shots |> filter (\o -> not . outOfBounds <| o) 
@@ -192,7 +195,7 @@ stepWeapons i g =
                                               then not <| any (\e -> collision s e) g.enemies
                                               else s.alive)
     in  cleanShots |> shoot i g.player
-                   |> map (\x -> shotPhysics i.delta  . moveO i.delta 1 <| x)
+                   |> map (\x -> shotPhysics i.delta  . moveO i.delta <| x)
 
 stepParticles i g =
     let currentPs          = filter (\p -> not . outOfBounds <| p) g.particles
@@ -212,8 +215,6 @@ nParticles i e gen =
     in case i of
             0 -> []
             otherwise -> newP :: (nParticles (i-1) e newG)
-
-
 
 stepGame i g = 
     let paused = g.playState == Paused
@@ -304,9 +305,9 @@ makeParticles p =
           , (0.75, lightRed)
           , (   1, white)
           ]
-    in rect 10 p.radius |> gradient particleGradient
-                        |> move (p.x, p.y)
-                        |> rotate (tan (p.y+p.vy))
+    in rect p.radius 2 |> gradient particleGradient
+                       |> move (p.x, p.y)
+                       |> rotate (tan (p.y+p.vy))
 
 
 display : (Int, Int) -> GameOs -> Input -> Element
