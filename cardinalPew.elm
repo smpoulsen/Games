@@ -11,7 +11,7 @@ import Tpoulsen.Lib (listToMaybe)
 
 ------ INPUTS ------
 type Input = { yDir:Int, fire:(Time, Bool), bomb:(Time, Bool), shift:Bool, swap:(Time, Bool)
-             , restart:Bool, pause:(Time, Bool), sinceStart:Time, delta:Time }
+             , restart:Bool, pause:(Time, Bool), sinceStart:Time, windowSize:(Int, Int), delta:Time }
 
 delta : Signal Time
 delta = lift (\t -> t/9) (fps 60)
@@ -25,6 +25,7 @@ input = sampleOn delta (Input <~ lift .y Keyboard.arrows
                                ~ Keyboard.isDown (Char.toCode 'R')
                                ~ Time.timestamp (Keyboard.isDown (Char.toCode 'P'))
                                ~ every (second)
+                               ~ Window.dimensions
                                ~ delta )
 
 
@@ -41,8 +42,9 @@ type Particle = GameObject {}
 --Model types.
 data PlayState    = Playing | Paused
 data WeaponTypes  = Blaster | WaveBeam | Bomb
-type Game p e s   = { player:(Player p), enemies:[Enemy e], shots:[Shot s], bombs:[BombO], particles:[Particle]
-                    , score:Int, totalShots:Int, paused:Time, playState:PlayState, rGen:StdGen }
+type Game p e s   = { player:(Player p), enemies:[Enemy e], shots:[Shot s]
+                    , bombs:[BombO], particles:[Particle], score:Int, totalShots:Int
+                    , paused:Time, playState:PlayState, rGen:StdGen, halfWidth:Float, halfHeight:Float }
 type Player p     = { p | weapons:[Weapon], bombs:Int, boost:Bool, health:Int }
 type Enemy  e     = { e | sides:Int, created:Time  }
 type Weapon       = { kind:WeaponTypes, active:Bool, cooldown:Time, lastSwapped:Time, fillColor:Color }
@@ -51,19 +53,17 @@ type GameObject o = { o | x:Float, y:Float, vy:Float, vx:Float, radius:Float, al
 
 defaultGame : GameOs
 defaultGame = { player=player1, enemies=[enemy1], shots=[], bombs=[], particles=[]
-              , score=0, totalShots=0, paused=0, playState=Paused, rGen=gen }
+              , score=0, totalShots=0, paused=0, playState=Paused, rGen=gen, halfWidth=800, halfHeight=300 }
 
 player1  : PlayerO
-player1  = { x=-halfWidth+padding, y=0, vx=0, vy=0, weapons=[blaster, waveBeam]
-           , bombs=3, radius=20, health=100, boost=False, alive=True }
+player1  = { x=-500+padding, y=0, vx=0, vy=0, weapons=[blaster, waveBeam]
+           , bombs=3, radius=15, health=100, boost=False, alive=True }
 blaster  : Weapon
 blaster  = { kind=Blaster, active=True,   cooldown=(50 * millisecond), lastSwapped=0, fillColor=lightRed }
 waveBeam : Weapon
 waveBeam = { kind=WaveBeam, active=False, cooldown=(second), lastSwapped=0, fillColor=lightPurple }
-bomb     : BombO
-bomb     = { x=-halfWidth+padding, y=0, vx=1, vy=0, radius=10, alive=True, kind=Bomb, fired=0 }
 enemy1   : EnemyO
-enemy1   =  { x=halfWidth+100, y=0, vx=-1, vy=0, sides=5, radius=30, alive=True, created=0.0 }
+enemy1   =  { x=1000, y=0, vx=-1, vy=0, sides=5, radius=30, alive=True, created=0.0 }
 
 
 ------ UPDATE ------
@@ -73,14 +73,14 @@ randomSeed = 1
 gen : StdGen
 gen = Generator.Standard.generator randomSeed
 
-genEnemies : Time -> StdGen -> (EnemyO, StdGen)
-genEnemies t g = 
+genEnemies : Time -> Float -> Float -> StdGen -> (EnemyO, StdGen)
+genEnemies t halfW halfH g = 
   let ([y',vx', s',r'], g') = Generator.listOf (Generator.floatRange (-1, 1)) 4 g
-      eY  = y' * halfHeight |> clamp (-halfHeight+padding/2) (halfHeight-hud-eR)
+      eY  = y' * halfH |> clamp (-halfH+padding/2) (halfH-hud-eR)
       eVx = (abs vx')*(-4)  |> clamp -2 -3  
       eS  = (abs s') * 10   |> round |> clamp 3 10 
       eR  = (abs r') * 30   |> clamp 10 30
-  in ({ x=halfWidth+100, y=eY, vx=eVx, vy=0, sides=eS, radius=eR, alive=True, created=t }, g')
+  in ({ x=halfW+100, y=eY, vx=eVx, vy=0, sides=eS, radius=eR, alive=True, created=t }, g')
 
 genParticles : StdGen -> EnemyO -> (StdGen, Particle)
 genParticles g o = 
@@ -103,35 +103,38 @@ collision o1 o2 = (o1.x + o1.radius >= o2.x - o2.radius &&
                   (o1.y + o1.radius >= o2.y - o2.radius && 
                    o1.y - o1.radius <= o2.y + o2.radius)
 
-outOfBounds : GameObject o -> Bool
-outOfBounds o = o.x > halfWidth+100 || o.x < -halfWidth || 
-                o.y > halfHeight+100 || o.y < -halfHeight-100 ||
-                (not o.alive)
+outOfBounds : Float -> Float -> GameObject o -> Bool
+outOfBounds halfW halfH o = 
+    o.x > halfW+100 || o.x < -halfW || 
+    o.y > halfH+100 || o.y < -halfH-100 ||
+    (not o.alive)
 
 --PHYSICS
-genericPhysics : Time -> GameObject o -> GameObject o
-genericPhysics t p = { p | y <- p.y + t * p.vy  |> clamp (-halfHeight+padding/2) (halfHeight-hud)
-                         , x <- p.x + t * p.vx  }
+genericPhysics : Time -> Float -> GameObject o -> GameObject o
+genericPhysics t halfH p = { p | y <- p.y + t * p.vy  |> clamp (-halfH+padding/2) (halfH-hud)
+                               , x <- p.x + t * p.vx  }
 
-shotPhysics : Time -> ShotO -> ShotO 
-shotPhysics t s  = { s | y <- if | s.kind /= WaveBeam -> s.y  |> clamp (-halfHeight) (halfHeight-hud)
-                                 | otherwise -> s.y - 2*(sin <| (s.x)/50 ) |> clamp (-halfHeight) (halfHeight)
-                       , x <- if | s.kind /= WaveBeam -> s.x + t * s.vx 
-                                 | otherwise  -> s.x + t * s.vx  }
-
-particlePhysics : Time -> GameObject o -> GameObject o
-particlePhysics t p = { p | y <- p.y + t * p.vy * 2 |> clamp (-halfHeight-100) (halfHeight+100)
-                          , x <- p.x + t * p.vx }
+shotPhysics : Time -> Float -> ShotO -> ShotO 
+shotPhysics t halfH s  = { s | y <- if | s.kind /= WaveBeam -> s.y  |> clamp (-halfH) (halfH-hud)
+                                       | otherwise -> s.y - 2*(sin <| (s.x)/50 ) |> clamp (-halfH) (halfH)
+                             , x <- if | s.kind /= WaveBeam -> s.x + t * s.vx 
+                                       | otherwise  -> s.x + t * s.vx  }
+    
+particlePhysics : Time -> Float -> GameObject o -> GameObject o
+particlePhysics t halfH p = { p | y <- p.y + t * p.vy * 2 |> clamp (-halfH-100) (halfH+100)
+                                , x <- p.x + t * p.vx }
 
 bombPhysics : Time -> PlayerO -> BombO -> BombO
-bombPhysics t p b = { b | x <- b.x + t * b.vx * 50 |> clamp (-halfWidth) (0) }
+bombPhysics t p b = { b | x <- b.x + t * b.vx * 50 |> clamp p.x 0 }
 
 --MOVEMENT
-moveP : Int -> Bool -> PlayerO -> PlayerO
-moveP yDir boost p = 
+moveP : Input -> PlayerO -> PlayerO
+moveP i p = 
     if p.health > 0 
-    then { p | vy <- if | boost     -> toFloat <| 6 * yDir
-                        | otherwise -> toFloat <| 2 * yDir }
+    then { p | vy <- if | i.shift   -> toFloat <| 6 * i.yDir
+                        | otherwise -> toFloat <| 2 * i.yDir 
+             , x  <- -(toFloat (fst i.windowSize)/2)+padding
+         }
     else p
 
 --HEALTH & SCORE
@@ -216,23 +219,23 @@ addShots i g =
 --STEPPERS
 --stepPlayer : Input -> Game PlayerO EnemyO ShotO -> Game PlayerO EnemyO ShotO
 stepPlayer i g = g.player |> isAlive . shotBomb i g.bombs . healthLost g.enemies . 
-                             genericPhysics i.delta . moveP i.yDir i.shift . swapWeapons i
+                             genericPhysics i.delta g.halfHeight . moveP i . swapWeapons i
 
 stepEnemies i g  = 
-    let inPlay = filter (\e -> not . outOfBounds <| e) g.enemies
+    let inPlay = filter (\e -> not . outOfBounds g.halfWidth g.halfHeight <| e) g.enemies
         lastC  = inPlay |> listToMaybe |> maybe (enemy1) id
         es'    = if (i.sinceStart - lastC.created >= 0.5) 
-                 then (fst <| genEnemies i.sinceStart g.rGen) :: inPlay 
+                 then (fst <| genEnemies i.sinceStart g.halfWidth g.halfHeight g.rGen) :: inPlay 
                  else inPlay
-    in map (\x -> genericPhysics i.delta . shotsHit g.bombs . shotsHit g.shots <| x) es'
+    in map (\x -> genericPhysics i.delta g.halfHeight . shotsHit g.bombs . shotsHit g.shots <| x) es'
 
 stepWeapons i g = 
-    let cleanShots = g.shots |> filter (\o -> not . outOfBounds <| o) 
+    let cleanShots = g.shots |> filter (\o -> not . outOfBounds g.halfWidth g.halfHeight <| o) 
                              |> filter (\s -> if s.kind == Blaster 
                                               then not <| any (\e -> collision s e) g.enemies
                                               else s.alive)
     in  cleanShots |> newShot i g.player
-                   |> map (\x -> shotPhysics i.delta <| x)
+                   |> map (\x -> shotPhysics i.delta g.halfHeight <| x)
 
 stepBombs i g = 
     let bs'   = fireBomb i g.player g.bombs |> filter (\b -> b.alive)
@@ -240,10 +243,10 @@ stepBombs i g =
     in bs' |> map (\b -> bombPhysics i.delta g.player <| explodeBomb i.sinceStart <| b)
 
 stepParticles i g =
-    let currentPs    = filter (\p -> not . outOfBounds <| p) g.particles
+    let currentPs    = filter (\p -> not . outOfBounds g.halfWidth g.halfHeight <| p) g.particles
         deadEs       = filter (\e -> not e.alive) g.enemies
         allParticles = concatMap (\e -> nParticles e.sides e g.rGen) deadEs
-    in allParticles ++ currentPs |> map (\x -> particlePhysics i.delta <| x)
+    in allParticles ++ currentPs |> map (\x -> particlePhysics i.delta g.halfHeight <| x)
 
 stepPlayState i g =
     if (snd i.pause) && (fst i.pause) - g.paused > 5
@@ -262,20 +265,21 @@ stepGame i g =
             , shots      <- if not paused then stepWeapons   i g else g.shots
             , bombs      <- if not paused then stepBombs     i g else g.bombs
             , particles  <- if not paused then stepParticles i g else g.particles
-            , rGen       <- if not paused then snd <| genEnemies i.sinceStart g.rGen else g.rGen
-            , score      <- if not paused 
-                        && g.player.alive then scoreMod g.score g.enemies else g.score
+            , rGen       <- if not paused then snd <| genEnemies i.sinceStart g.halfWidth g.halfHeight g.rGen 
+                            else g.rGen
+            , score      <- if not paused && g.player.alive then scoreMod g.score g.enemies 
+                            else g.score
             , totalShots <- if not paused then addShots i g else g.totalShots
             , playState  <- playState'
             , paused     <- if g.playState /= playState' then (fst i.pause) else g.paused
+            , halfWidth  <- toFloat (fst i.windowSize)/2
+            , halfHeight <- toFloat (snd i.windowSize)/2
         }
 
 gameState : Signal GameOs
 gameState = foldp stepGame defaultGame input
 
 ------ DISPLAY ------
-(gameWidth, gameHeight) = (1000, 600)
-(halfWidth, halfHeight) = (gameWidth/2, gameHeight/2)
 padding = 50
 hud     = 50
 
@@ -293,17 +297,17 @@ makeHud g i =
             [
               "Health: " ++ show p.health ++ "%" |> txt white 
                                                  |> toForm 
-                                                 |> move (-halfWidth+padding*2, halfHeight-padding/2)
+                                                 |> move (-g.halfWidth+padding*2, g.halfHeight-padding/2)
             , "Weapon: " ++ show equipped.kind   |> txt equipped.fillColor 
                                                  |> toForm 
-                                                 |> move (-halfWidth/2.5, halfHeight-padding/2)
+                                                 |> move (-g.halfWidth/2.5, g.halfHeight-padding/2)
             , "Bombs: "  ++ ("O" |> repeat p.bombs |> String.join " ")
                                                    |> txt lightBlue 
                                                    |> toForm 
-                                                   |> move (0, halfHeight-padding/2)
+                                                   |> move (0, g.halfHeight-padding/2)
             , "Score: " ++ score |> txt white 
                                  |> toForm 
-                                 |> move (halfWidth-padding*2, halfHeight-padding/2)
+                                 |> move (g.halfWidth-padding*2, g.halfHeight-padding/2)
             , if paused 
               then group
               [ "PAUSED"                 |> txt lightRed |> toForm |> move (0, padding*2.5)
@@ -370,11 +374,13 @@ makeParticles p =
 
 
 display : (Int, Int) -> GameOs -> Input -> Element
-display (w, h) g i = 
-    let equipped = activeWeapon g.player.weapons
-    in container w h middle <| collage gameWidth gameHeight  <|
+display (w', h') g i = 
+    let (w, h) = (toFloat w', toFloat h')
+        (halfW, halfH) = (w/2, h/2)
+        equipped = activeWeapon g.player.weapons
+    in container w' h' middle <| collage w' h'  <|
            concat [
-              [ rect gameWidth gameHeight |> filled black
+              [ rect w h |> filled black
               , if g.player.health > 0 then makeHud g i else makeDeathScreen g
               , make g.player
               ], map makeShots g.shots
