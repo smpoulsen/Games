@@ -41,8 +41,8 @@ type Particle = GameObject {}
 --Model types.
 data PlayState    = Playing | Paused
 data WeaponTypes  = Blaster | WaveBeam | Bomb
-type Game p e s   = { player:(Player p), enemies:[Enemy e], shots:[Shot s], bombs:[BombO], particles:[Particle], score:Int
-                    , totalShots:Int, paused:Time, playState:PlayState, rGen:StdGen }
+type Game p e s   = { player:(Player p), enemies:[Enemy e], shots:[Shot s], bombs:[BombO], particles:[Particle]
+                    , score:Int, totalShots:Int, paused:Time, playState:PlayState, rGen:StdGen }
 type Player p     = { p | weapons:[Weapon], bombs:Int, boost:Bool, health:Int }
 type Enemy  e     = { e | sides:Int, created:Time  }
 type Weapon       = { kind:WeaponTypes, active:Bool, cooldown:Time, lastSwapped:Time, fillColor:Color }
@@ -220,7 +220,7 @@ stepPlayer i g = g.player |> isAlive . shotBomb i g.bombs . healthLost g.enemies
 
 stepEnemies i g  = 
     let inPlay = filter (\e -> not . outOfBounds <| e) g.enemies
-        lastC  = head inPlay
+        lastC  = inPlay |> listToMaybe |> maybe (enemy1) (\e -> e)
         es'    = if (i.sinceStart - lastC.created >= 0.5) 
                  then (fst <| genEnemies i.sinceStart g.rGen) :: inPlay 
                  else inPlay
@@ -305,8 +305,16 @@ makeHud g i =
                                  |> toForm 
                                  |> move (halfWidth-padding*2, halfHeight-padding/2)
             , if paused 
-              then "PAUSED\n'p' to resume\n&uarr;&darr; to move\n'space' to shoot\n'shift' for boost\n'c' to change weapons\n'r' to restart (only from paused)" 
-                              |> txt white |> toForm 
+              then group
+              [ "PAUSED"                 |> txt lightRed |> toForm |> move (0, padding*2.5)
+              , "'p' - to resume"          |> txt white |> toForm |> move (0, padding*2)
+              , "'&uarr;&darr;' - to move ship" |> txt white |> toForm |> move (-padding*4, padding)
+              , "'shift' - to boost speed" |> txt white |> toForm |> move (-padding*4, 0)
+              , "'space' - to shoot weapon"|> txt white |> toForm |> move (padding*4, padding)
+              , "'c' - to change weapons"  |> txt white |> toForm |> move (padding*4, 0)
+              , "'b' - to deploy a bomb"    |> txt white |> toForm |> move (0, -padding)
+              , "'r' - to restart game (from paused)"|> txt white |> toForm |> move (0, -padding*2)
+              ]
               else spacer 0 0 |> toForm           
             ]
 
