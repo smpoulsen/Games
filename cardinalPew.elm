@@ -120,9 +120,14 @@ healthLost es p =
     in { p | health <- if | any (\e -> collision p e) es -> 0
                           | otherwise -> p.health - (sum . map (round . (\x-> x.radius/10 )) <| gotPast) }
 
-scoreMod s es = 
+isAlive : PlayerO -> PlayerO
+isAlive p = { p | alive <- if | p.health <= 0 -> False
+                              | otherwise     -> True
+            } 
+
+scoreMod score es = 
     let dead = length <| filter (\e -> not e.alive) es
-    in s + dead
+    in score + dead
 
 outOfBounds : GameObject o -> Bool
 outOfBounds o = o.x > halfWidth+100 || o.x < -halfWidth || (not o.alive)
@@ -170,7 +175,7 @@ addShots i g =
 
 --STEPPERS
 --stepPlayer : Input -> Game PlayerO EnemyO ShotO -> Game PlayerO EnemyO ShotO
-stepPlayer i g = g.player |> healthLost g.enemies . genericPhysics i.delta . moveP i.yDir i.shift . swapWeapons i
+stepPlayer i g = g.player |> isAlive . healthLost g.enemies . genericPhysics i.delta . moveP i.yDir i.shift . swapWeapons i
 
 
 stepEnemies i g  = 
@@ -192,11 +197,8 @@ stepWeapons i g =
 stepParticles i g =
     let currentPs          = filter (\p -> not . outOfBounds <| p) g.particles
         deadEs             = filter (\e -> not e.alive) g.enemies
-        (newGs, newPs)     = unzip . map (\e -> genParticles g.rGen        <| e) <| deadEs
-        (newGs', newPs')   = unzip . map (\e -> genParticles (head newGs)  <| e) <| deadEs
-        (newGs'', newPs'') = unzip . map (\e -> genParticles (head newGs') <| e) <| deadEs
-        allParticles       = concat [newPs, newPs', newPs'', currentPs]
-    in allParticles |> map (\x -> particlePhysics i.delta . moveParticles i.delta <| x)
+        allParticles       = concatMap (\e -> nParticles e.sides e g.rGen) deadEs
+    in allParticles ++ currentPs |> map (\x -> particlePhysics i.delta . moveParticles i.delta <| x)
 
 stepPlayState i g =
     if (snd i.pause) && (fst i.pause) - g.paused > 5
@@ -204,10 +206,19 @@ stepPlayState i g =
              | otherwise -> Paused 
     else g.playState
 
+nParticles : Int -> EnemyO -> StdGen -> [Particle]
+nParticles i e gen = 
+    let (newG, newP) = genParticles gen e
+    in case i of
+            0 -> []
+            otherwise -> newP :: (nParticles (i-1) e newG)
+
+
+
 stepGame i g = 
     let paused = g.playState == Paused
         playState' = stepPlayState i g
-    in if i.restart && paused
+    in if i.restart && (paused || g.player.health <= 0)
        then defaultGame
        else
         { g | player     <- if not paused then stepPlayer    i g else g.player
@@ -215,7 +226,8 @@ stepGame i g =
             , shots      <- if not paused then stepWeapons   i g else g.shots
             , particles  <- if not paused then stepParticles i g else g.particles
             , rGen       <- if not paused then snd <| genEnemies i.sinceStart g.rGen else g.rGen
-            , score      <- if not paused then scoreMod g.score g.enemies else g.score
+            , score      <- if not paused 
+                        && g.player.alive then scoreMod g.score g.enemies else g.score
             , totalShots <- if not paused then addShots i g else g.totalShots
             , playState  <- playState'
             , paused     <- if g.playState /= playState' then (fst i.pause) else g.paused
@@ -292,8 +304,9 @@ makeParticles p =
           , (0.75, lightRed)
           , (   1, white)
           ]
-    in circle p.radius |> gradient particleGradient
-                       |> move (p.x, p.y)
+    in rect 10 p.radius |> gradient particleGradient
+                        |> move (p.x, p.y)
+                        |> rotate (tan (p.y+p.vy))
 
 
 display : (Int, Int) -> GameOs -> Input -> Element
