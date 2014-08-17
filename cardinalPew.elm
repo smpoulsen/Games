@@ -374,8 +374,13 @@ makeControlsScreen =
 makePauseScreen g =
     group [ 
           "PAUSED" |> header |> toForm |> move (0, padding*2.5)
-        , "'p' - to resume"       |> txt white |> toForm |> move (0, padding*0.5)
-        , "'r' - to restart game" |> txt white |> toForm |> move (0, -padding*0.5)
+        , "'p' - to resume"       |> txt white |> toForm |> move (0, padding*1.5)
+        , "'r' - to restart game" |> txt white |> toForm |> move (0, padding)
+        , "'&uarr;&darr;' - to move ship"  |> txt white |> toForm |> move (-padding*4, 0)
+        , "'shift' - to boost speed"       |> txt white |> toForm |> move (-padding*4, -padding*0.5)
+        , "'space' - to shoot weapon"      |> txt white |> toForm |> move (padding*4, 0)
+        , "'c' - to change weapons"        |> txt white |> toForm |> move (padding*4, -padding*0.5)
+        , "'b' - to deploy a bomb"         |> txt white |> toForm |> move (0, -padding*1.5)
     ]
 
 makeDeathScreen g =
