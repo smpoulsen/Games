@@ -230,7 +230,7 @@ stepPlayer i g = g.player |> isAlive . shotBomb i g.bombs . healthLost g.enemies
 stepEnemies i g  = 
     let inPlay = filter (\e -> not . outOfBounds g.halfWidth g.halfHeight <| e) g.enemies
         lastC  = inPlay |> listToMaybe |> maybe (enemy1) id
-        es'    = if (i.sinceStart - lastC.created >= 1000) 
+        es'    = if (i.sinceStart - lastC.created >= (100*g.playTime)^(-2))
                  then (fst <| genEnemies i.sinceStart g.halfWidth g.halfHeight g.rGen) :: inPlay 
                  else inPlay
     in map (\x -> genericPhysics i.delta g.halfHeight . shotsHit g.particles . shotsHit g.bombs . shotsHit g.shots <| x) es'
@@ -384,8 +384,7 @@ makeDeathScreen g =
         finalTime  = g.playTime   |> String.padLeft 5 '0' . String.left 4 . show . inSeconds
         accuracy   = max 0 (100.0 * (toFloat g.score)/(toFloat g.totalShots)) |> String.left 5 . show
     in group [
-               "YOU DIED" |> txt lightRed |> toForm |> move (0, padding*3.5)
-             , "None will know of Triangalia's defat." |> txt lightRed |> toForm |> move (0, padding*3)
+               "GAME OVER" |> txt lightRed |> toForm |> move (0, padding*3.5)
              , "Survival Time: " ++ finalTime ++ " seconds" |> txt white |> toForm |> move (0, padding*1.5)
              , "Final Score:  " ++ finalScore |> txt white |> toForm |> move (0, padding*0.5)
              , "Total Shots:  " ++ totalShots |> txt white |> toForm |> move (0, -padding*0.5)
