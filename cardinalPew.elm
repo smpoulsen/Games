@@ -37,13 +37,13 @@ type PlayerO  = Player (GameObject {})
 type EnemyO   = Enemy  (GameObject {})
 type ShotO    = Shot   (GameObject {})
 type BombO    = ShotO
+type Particle = ShotO
 type GameOs   = Game   (GameObject {}) (GameObject {}) (GameObject {})
 type StdGen   = Generator.Generator Generator.Standard.Standard
-type Particle = GameObject {}
 
 --Model types.
-data PlayState    = Start | Playing | Paused | GameOver
-data WeaponTypes  = Blaster | WaveBeam | Bomb
+data PlayState    = Start | Controls | Playing | Paused | GameOver
+data WeaponTypes  = Blaster | WaveBeam | Bomb | Debris
 type Game p e s   = { player:(Player p), enemies:[Enemy e], shots:[Shot s]
                     , bombs:[BombO], particles:[Particle], score:Int, totalShots:Int
                     , paused:Time, playTime:Time, playState:PlayState, rGen:StdGen
@@ -82,23 +82,23 @@ genEnemies t halfW halfH g =
   let ([y',vx', s',r'], g') = Generator.listOf (Generator.floatRange (-1, 1)) 4 g
       eY  = y' * halfH |> clamp (-halfH+padding/2) (halfH-hud-eR)
       eVx = (abs vx')*(-3)  |> clamp -2 -3  
-      eS  = (abs s') * 10   |> round |> clamp 3 10 
+      eS  = (abs s') * 10   |> round |> clamp 4 10 
       eR  = (abs r') * 30   |> clamp 10 30
   in ({ x=halfW+100, y=eY, vx=eVx, vy=0, sides=eS, radius=eR, alive=True, created=t }, g')
 
-genParticles : StdGen -> EnemyO -> (StdGen, Particle)
-genParticles g o = 
+genParticles : Time -> StdGen -> EnemyO -> (StdGen, Particle)
+genParticles t g o = 
     let ([vx',vy'], g') = Generator.listOf (Generator.floatRange (-1, 1)) 2 g
         pVx = abs vx' * 20 |> clamp 5 20 
         pVy = vy' * 10
-    in  (g',{ x=o.x, y=o.y, vx=pVx,  vy=pVy,  radius=o.radius, alive=True })
+    in  (g',{ kind=Debris, x=o.x, y=o.y, vx=pVx,  vy=pVy, radius=o.radius, alive=True, fired=t })
 
-nParticles : Int -> EnemyO -> StdGen -> [Particle]
-nParticles i e gen = 
-    let (newG, newP) = genParticles gen e
+nParticles : Time -> Int -> EnemyO -> StdGen -> [Particle]
+nParticles t i e gen = 
+    let (newG, newP) = genParticles t gen e
     in case i of
             0 -> []
-            otherwise -> newP :: (nParticles (i-1) e newG)
+            otherwise -> newP :: (nParticles t (i-1) e newG)
 
 --COLLISION & BOUNDS CHECKS
 collision : GameObject o -> GameObject o -> Bool
@@ -209,10 +209,12 @@ shotBomb i bs p = { p | bombs <- if | bombCanFire i p bs  -> p.bombs - 1
 explodeBomb t b = 
     if (inSeconds t) - (inSeconds b.fired) < 1
     then { b | radius <- b.radius + 4 } 
-    else { b | alive <- False }
+    else { b | radius <- b.radius - 4
+             , alive  <- if | b.radius <= 0 -> False
+                            | otherwise -> True }
 
 shotsHit : [ShotO] -> EnemyO -> EnemyO
-shotsHit s e = if any (\shot -> collision shot e) s then { e | alive <-  False }
+shotsHit s e = if any (\shot -> collision shot e) s then { e | alive <- False }
                else e
 
 addShots i g = 
@@ -228,10 +230,10 @@ stepPlayer i g = g.player |> isAlive . shotBomb i g.bombs . healthLost g.enemies
 stepEnemies i g  = 
     let inPlay = filter (\e -> not . outOfBounds g.halfWidth g.halfHeight <| e) g.enemies
         lastC  = inPlay |> listToMaybe |> maybe (enemy1) id
-        es'    = if (i.sinceStart - lastC.created >= 1000) 
+        es'    = if (i.sinceStart - lastC.created >= (100*g.playTime)^(-2))
                  then (fst <| genEnemies i.sinceStart g.halfWidth g.halfHeight g.rGen) :: inPlay 
                  else inPlay
-    in map (\x -> genericPhysics i.delta g.halfHeight . shotsHit g.bombs . shotsHit g.shots <| x) es'
+    in map (\x -> genericPhysics i.delta g.halfHeight . shotsHit g.particles . shotsHit g.bombs . shotsHit g.shots <| x) es'
 
 stepWeapons i g = 
     let cleanShots = g.shots |> filter (\o -> not . outOfBounds g.halfWidth g.halfHeight <| o) 
@@ -249,22 +251,24 @@ stepBombs i g =
 stepParticles i g =
     let currentPs    = filter (\p -> not . outOfBounds g.halfWidth g.halfHeight <| p) g.particles
         deadEs       = filter (\e -> not e.alive) g.enemies
-        allParticles = concatMap (\e -> nParticles e.sides e g.rGen) deadEs
+        allParticles = concatMap (\e -> nParticles e.created e.sides e g.rGen) deadEs
     in allParticles ++ currentPs |> map (\x -> particlePhysics i.delta g.halfHeight <| x)
 
 stepPlayState i g =
     let togglePause = (snd i.pause) && (fst i.pause) - g.paused > 5
-    in if | snd i.pause && g.playState == Start   -> Playing
-          | togglePause && g.playState == Paused  -> Playing
-          | togglePause && g.playState == Playing -> Paused
-          | g.player.health <= 0                  -> GameOver
+    in if | snd i.pause && g.playState == Start    -> Controls
+          | snd i.fire  && g.playState == Start    -> Playing
+          | togglePause && g.playState == Controls -> Playing
+          | togglePause && g.playState == Paused   -> Playing
+          | togglePause && g.playState == Playing  -> Paused
+          | g.player.health <= 0                   -> GameOver
           | otherwise -> g.playState 
 
 stepGame i g = 
     let paused = g.playState == Paused || g.playState == Start
         playState' = stepPlayState i g
     in if i.restart && (paused || g.player.health <= 0)
-       then defaultGame
+       then { defaultGame | playState <- Playing }
        else case g.playState of
         Playing -> 
                 { g | player     <- stepPlayer    i g
@@ -303,6 +307,9 @@ hud     = 50
 txt : Color -> String -> Element
 txt c = centered . monospace . Text.height 18 . Text.color c . toText 
 
+header : String -> Element
+header = centered . monospace . Text.height 40 . Text.color lightRed . toText 
+
 --makeHud : GameOs -> Input -> Form
 makeHud g i = 
     let p        = g.player
@@ -312,9 +319,7 @@ makeHud g i =
         timer    = String.padLeft 5 '0' . show . round . inSeconds <| g.playTime
         paused   = g.playState == Paused
         start    = g.playState == Start
-    in if paused || start
-       then makeStartPause g g.playState
-       else group
+    in group
           [
               "Health: " ++ show p.health ++ "%" |> txt white 
                                                  |> toForm 
@@ -322,7 +327,7 @@ makeHud g i =
             , "Weapon: " ++ show equipped.kind   |> txt equipped.fillColor 
                                                  |> toForm 
                                                  |> move (-g.halfWidth/2.5, g.halfHeight-padding/2)
-            , "Bombs: "  ++ ("O" |> repeat p.bombs |> String.join " ")
+            , "Bombs: "  ++ ("●" |> repeat p.bombs |> String.join " ")
                                                    |> txt lightBlue 
                                                    |> toForm 
                                                    |> move (0, g.halfHeight-padding/2)
@@ -331,33 +336,46 @@ makeHud g i =
                                  |> move (g.halfWidth-padding*6, g.halfHeight-padding/2)
             , "Score: " ++ score |> txt white 
                                  |> toForm 
-                                 |> move (g.halfWidth-padding*2, g.halfHeight-padding/2)         
+                                 |> move (g.halfWidth-padding*2, g.halfHeight-padding/2)
+            , if paused then makePauseScreen g else spacer 0 0 |> toForm         
             ]
 
-makeStartPause g state =
-    let header = move (0, padding*3.5) . toForm . centered . monospace . Text.height 40 . Text.color lightRed . toText 
-    in group [ 
-        if state == Paused then 
-            "PAUSED" |> header
-        else 
+makeStartScreen g =
+    group [
             " 
- ██████╗ █████╗ ██████╗ ██████╗ ██╗███╗   ██╗ █████╗ ██╗     ██████╗ ███████╗██╗    ██╗
-██╔════╝██╔══██╗██╔══██╗██╔══██╗██║████╗  ██║██╔══██╗██║     ██╔══██╗██╔════╝██║    ██║
-██║     ███████║██████╔╝██║  ██║██║██╔██╗ ██║███████║██║     ██████╔╝█████╗  ██║ █╗ ██║
-██║     ██╔══██║██╔══██╗██║  ██║██║██║╚██╗██║██╔══██║██║     ██╔═══╝ ██╔══╝  ██║███╗██║
-╚██████╗██║  ██║██║  ██║██████╔╝██║██║ ╚████║██║  ██║███████╗██║     ███████╗╚███╔███╔╝
- ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝╚═╝     ╚══════╝ ╚══╝╚══╝ 
-                                                                                       " |> txt lightRed |> toForm |> move (0, padding*3.5)
-        , "'p' - to pause/resume"          |> txt white |> toForm |> move (0, padding*1.5)
+ ██████╗ █████╗ ██████╗ ██████╗ ██╗███╗   ██╗ █████╗ ██╗        ██████╗ ███████╗██╗    ██╗
+██╔════╝██╔══██╗██╔══██╗██╔══██╗██║████╗  ██║██╔══██╗██║     ██╗██╔══██╗██╔════╝██║    ██║
+██║     ███████║██████╔╝██║  ██║██║██╔██╗ ██║███████║██║     ╚═╝██████╔╝█████╗  ██║ █╗ ██║
+██║     ██╔══██║██╔══██╗██║  ██║██║██║╚██╗██║██╔══██║██║     ██╗██╔═══╝ ██╔══╝  ██║███╗██║
+╚██████╗██║  ██║██║  ██║██████╔╝██║██║ ╚████║██║  ██║███████╗╚═╝██║     ███████╗╚███╔███╔╝
+ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝   ╚═╝     ╚══════╝ ╚══╝╚══╝ " |> txt lightRed |> toForm |> move (0, padding*4)
+    , "Triangalia fell when the [4≤n≤10]gons attacked."      |> txt white |> toForm |> move (0, padding*1.5)
+    , "The fleet was all but exterminated."                  |> txt white |> toForm |> move (0, padding) 
+    , "You are Cardinal, the last of the Triangle warriors." |> txt white |> toForm |> move (0, 0) 
+    , "You have a blaster, a wave beam, and three bombs."    |> txt white |> toForm |> move (0, -padding*0.5)
+    , "Don't let them hit you, and don't let them past."     |> txt white |> toForm |> move (0, -padding)
+    , "You must hold them off as long as you can."           |> txt white |> toForm |> move (0, -padding*1.5)
+    , "Press 'p' to view the controls."                      |> txt white |> toForm |> move (0, -padding*2.5)
+    , "Press 'space' to join the battle."                    |> txt white |> toForm |> move (0, -padding*3)
+    ]
+
+makeControlsScreen =
+    group [
+          "CONTROLS" |> header |> toForm |> move (0, padding*2.5)
+        , "'p' - to pause"                 |> txt white |> toForm |> move (0, padding*1.5)
         , "'&uarr;&darr;' - to move ship"  |> txt white |> toForm |> move (-padding*4, padding*0.5)
         , "'shift' - to boost speed"       |> txt white |> toForm |> move (-padding*4, -padding*0.5)
         , "'space' - to shoot weapon"      |> txt white |> toForm |> move (padding*4, padding*0.5)
         , "'c' - to change weapons"        |> txt white |> toForm |> move (padding*4, -padding*0.5)
         , "'b' - to deploy a bomb"         |> txt white |> toForm |> move (0, -padding*1.5)
-        , if state == Paused then 
-            "'r' - to restart game (from paused)"|> txt white |> toForm |> move (0, -padding*2.5)
-        else
-            "'p' to start the game" |> txt white |> toForm |> move (0, -padding*2.5)
+         , "Press 'p' to begin."           |> txt white |> toForm |> move (0, -padding*2.5)
+    ]
+
+makePauseScreen g =
+    group [ 
+          "PAUSED" |> header |> toForm |> move (0, padding*2.5)
+        , "'p' - to resume"       |> txt white |> toForm |> move (0, padding*0.5)
+        , "'r' - to restart game" |> txt white |> toForm |> move (0, -padding*0.5)
     ]
 
 makeDeathScreen g =
@@ -366,7 +384,7 @@ makeDeathScreen g =
         finalTime  = g.playTime   |> String.padLeft 5 '0' . String.left 4 . show . inSeconds
         accuracy   = max 0 (100.0 * (toFloat g.score)/(toFloat g.totalShots)) |> String.left 5 . show
     in group [
-               "YOU DIED" |> txt lightRed |> toForm |> move (0, padding*3.5)
+               "GAME OVER" |> txt lightRed |> toForm |> move (0, padding*3.5)
              , "Survival Time: " ++ finalTime ++ " seconds" |> txt white |> toForm |> move (0, padding*1.5)
              , "Final Score:  " ++ finalScore |> txt white |> toForm |> move (0, padding*0.5)
              , "Total Shots:  " ++ totalShots |> txt white |> toForm |> move (0, -padding*0.5)
@@ -374,8 +392,8 @@ makeDeathScreen g =
              , "Press 'r' to play again!" |> txt white |> toForm |> move (0, -padding*2.5)
              ]
 
-make : PlayerO -> Form
-make p = 
+makePlayer : PlayerO -> Form
+makePlayer p = 
     if p.health > 0 then
         ngon 3 20   |> outlined (solid white)
                     |> move (p.x, p.y)
@@ -421,9 +439,14 @@ display (w', h') g i =
     in container w' h' middle <| collage w' h'  <|
            concat [
               [ rect w h |> filled black
-              , if g.player.health > 0 then makeHud g i else makeDeathScreen g
-              , if g.playState /= Start then make g.player else spacer 0 0 |> toForm
-              ], map makeShots g.shots
+              , case g.playState of 
+                      Start     -> makeStartScreen g
+                      Controls  -> makeControlsScreen
+                      GameOver  -> makeDeathScreen g
+                      otherwise -> makeHud g i 
+              ,  if g.playState == Playing then makePlayer g.player else spacer 0 0 |> toForm
+              ]
+               , map makeShots g.shots
                , map makeEnemies g.enemies
                , map makeBombs g.bombs
                , map makeParticles g.particles] 
