@@ -11,11 +11,12 @@ import Tpoulsen.Lib (listToMaybe)
 
 ------ INPUTS ------
 type Input = { yDir:Int, fire:(Time, Bool), bomb:(Time, Bool), shift:Bool, swap:(Time, Bool)
-             , start:(Time, Bool), restart:Bool, pause:(Time, Bool), sinceStart:Time
+             , restart:Bool, pause:(Time, Bool), sinceStart:Time
              , windowSize:(Int, Int), delta:Time }
 
+timeMod = 10
 delta : Signal Time
-delta = lift (\t -> t/9) (fps 60)
+delta = lift (\t -> t/timeMod) (fps 60)
 
 input : Signal Input
 input = sampleOn delta (Input <~ lift .y Keyboard.arrows
@@ -23,7 +24,6 @@ input = sampleOn delta (Input <~ lift .y Keyboard.arrows
                                ~ Time.timestamp (Keyboard.isDown (Char.toCode 'B'))
                                ~ Keyboard.shift
                                ~ Time.timestamp (Keyboard.isDown (Char.toCode 'C'))
-                               ~ Time.timestamp (Keyboard.isDown (Char.toCode 'S'))
                                ~ Keyboard.isDown (Char.toCode 'R')
                                ~ Time.timestamp (Keyboard.isDown (Char.toCode 'P'))
                                ~ every (500 * millisecond)
@@ -42,11 +42,12 @@ type StdGen   = Generator.Generator Generator.Standard.Standard
 type Particle = GameObject {}
 
 --Model types.
-data PlayState    = Start | Playing | Paused
+data PlayState    = Start | Playing | Paused | GameOver
 data WeaponTypes  = Blaster | WaveBeam | Bomb
 type Game p e s   = { player:(Player p), enemies:[Enemy e], shots:[Shot s]
                     , bombs:[BombO], particles:[Particle], score:Int, totalShots:Int
-                    , paused:Time, playState:PlayState, rGen:StdGen, halfWidth:Float, halfHeight:Float }
+                    , paused:Time, playTime:Time, playState:PlayState, rGen:StdGen
+                    , halfWidth:Float, halfHeight:Float }
 type Player p     = { p | weapons:[Weapon], bombs:Int, boost:Bool, health:Int }
 type Enemy  e     = { e | sides:Int, created:Time  }
 type Weapon       = { kind:WeaponTypes, active:Bool, cooldown:Time, lastSwapped:Time, fillColor:Color }
@@ -55,7 +56,8 @@ type GameObject o = { o | x:Float, y:Float, vy:Float, vx:Float, radius:Float, al
 
 defaultGame : GameOs
 defaultGame = { player=player1, enemies=[enemy1], shots=[], bombs=[], particles=[]
-              , score=0, totalShots=0, paused=0, playState=Start, rGen=gen, halfWidth=800, halfHeight=300 }
+              , score=0, totalShots=0, paused=0, playTime=0, playState=Start, rGen=gen
+              , halfWidth=800, halfHeight=300 }
 
 player1  : PlayerO
 player1  = { x=-500+padding, y=0, vx=0, vy=0, weapons=[blaster, waveBeam]
@@ -79,7 +81,7 @@ genEnemies : Time -> Float -> Float -> StdGen -> (EnemyO, StdGen)
 genEnemies t halfW halfH g = 
   let ([y',vx', s',r'], g') = Generator.listOf (Generator.floatRange (-1, 1)) 4 g
       eY  = y' * halfH |> clamp (-halfH+padding/2) (halfH-hud-eR)
-      eVx = (abs vx')*(-4)  |> clamp -2 -3  
+      eVx = (abs vx')*(-3)  |> clamp -2 -3  
       eS  = (abs s') * 10   |> round |> clamp 3 10 
       eR  = (abs r') * 30   |> clamp 10 30
   in ({ x=halfW+100, y=eY, vx=eVx, vy=0, sides=eS, radius=eR, alive=True, created=t }, g')
@@ -114,7 +116,7 @@ outOfBounds halfW halfH o =
 --PHYSICS
 genericPhysics : Time -> Float -> GameObject o -> GameObject o
 genericPhysics t halfH p = { p | y <- p.y + t * p.vy  |> clamp (-halfH+padding/2) (halfH-hud)
-                               , x <- p.x + t * p.vx  }
+                               , x <- p.x + t * p.vx }
 
 shotPhysics : Time -> Float -> ShotO -> ShotO 
 shotPhysics t halfH s  = { s | y <- if | s.kind /= WaveBeam -> s.y  |> clamp (-halfH) (halfH-hud)
@@ -242,7 +244,7 @@ stepWeapons i g =
 stepBombs i g = 
     let bs'   = fireBomb i g.player g.bombs |> filter (\b -> b.alive)
         lastB = bs' |> listToMaybe |> maybe 0 (\b -> b.fired)
-    in bs' |> map (\b -> bombPhysics i.delta g.player <| explodeBomb i.sinceStart <| b)
+    in bs' |> map (\b -> bombPhysics i.delta  g.player <| explodeBomb i.sinceStart <| b)
 
 stepParticles i g =
     let currentPs    = filter (\p -> not . outOfBounds g.halfWidth g.halfHeight <| p) g.particles
@@ -252,9 +254,10 @@ stepParticles i g =
 
 stepPlayState i g =
     let togglePause = (snd i.pause) && (fst i.pause) - g.paused > 5
-    in if | snd i.start && g.playState == Start   -> Playing
+    in if | snd i.pause && g.playState == Start   -> Playing
           | togglePause && g.playState == Paused  -> Playing
           | togglePause && g.playState == Playing -> Paused
+          | g.player.health <= 0                  -> GameOver
           | otherwise -> g.playState 
 
 stepGame i g = 
@@ -262,22 +265,33 @@ stepGame i g =
         playState' = stepPlayState i g
     in if i.restart && (paused || g.player.health <= 0)
        then defaultGame
-       else
-        { g | player     <- if not paused then stepPlayer    i g else g.player
-            , enemies    <- if not paused then stepEnemies   i g else g.enemies
-            , shots      <- if not paused then stepWeapons   i g else g.shots
-            , bombs      <- if not paused then stepBombs     i g else g.bombs
-            , particles  <- if not paused then stepParticles i g else g.particles
-            , rGen       <- if not paused then snd <| genEnemies i.sinceStart g.halfWidth g.halfHeight g.rGen 
-                            else g.rGen
-            , score      <- if not paused && g.player.alive then scoreMod g.score g.enemies 
-                            else g.score
-            , totalShots <- if not paused then addShots i g else g.totalShots
-            , playState  <- playState'
-            , paused     <- if g.playState /= playState' then (fst i.pause) else g.paused
-            , halfWidth  <- toFloat (fst i.windowSize)/2
-            , halfHeight <- toFloat (snd i.windowSize)/2
-        }
+       else case g.playState of
+        Playing -> 
+                { g | player     <- stepPlayer    i g
+                    , enemies    <- stepEnemies   i g
+                    , shots      <- stepWeapons   i g
+                    , bombs      <- stepBombs     i g
+                    , particles  <- stepParticles i g
+                    , rGen       <- snd <| genEnemies i.sinceStart g.halfWidth g.halfHeight g.rGen 
+                    , score      <- scoreMod g.score g.enemies
+                    , totalShots <- addShots i g
+                    , playTime   <- g.playTime + (i.delta*timeMod)
+                    , playState  <- playState'
+                    , paused     <- if g.playState /= playState' then (fst i.pause) else g.paused
+                    , halfWidth  <- toFloat (fst i.windowSize)/2
+                    , halfHeight <- toFloat (snd i.windowSize)/2
+                }
+        GameOver  -> 
+                { g | enemies    <- stepEnemies   i g 
+                    , shots      <- stepWeapons   i g
+                    , bombs      <- stepBombs     i g
+                    , particles  <- stepParticles i g
+                    , rGen       <- snd <| genEnemies i.sinceStart g.halfWidth g.halfHeight g.rGen 
+                }
+        otherwise -> 
+                { g | paused     <- if g.playState /= playState' then (fst i.pause) else g.paused
+                    , playState  <- playState'
+                } 
 
 gameState : Signal GameOs
 gameState = foldp stepGame defaultGame input
@@ -295,7 +309,7 @@ makeHud g i =
         equipped = activeWeapon p.weapons
         lastShot = g.shots |> listToMaybe |> maybe 0 (\x -> x.fired)
         score    = String.padLeft 5 '0' . show <| g.score
-        timer    = String.padLeft 5 '0' . String.left 4 . show . inSeconds <| i.sinceStart - (fst i.start) 
+        timer    = String.padLeft 5 '0' . show . round . inSeconds <| g.playTime
         paused   = g.playState == Paused
         start    = g.playState == Start
     in if paused || start
@@ -336,19 +350,21 @@ makeStartPause g state =
         , if state == Paused then 
             "'r' - to restart game (from paused)"|> txt white |> toForm |> move (0, -padding*2.5)
         else
-            "'s' to start the game" |> txt white |> toForm |> move (0, -padding*2.5)
+            "'p' to start the game" |> txt white |> toForm |> move (0, -padding*2.5)
     ]
 
 makeDeathScreen g =
     let finalScore = g.score      |> String.padLeft 5 '0' . show
         totalShots = g.totalShots |> String.padLeft 5 '0' . show 
-        accuracy   = 100.0 * (toFloat g.score)/(toFloat g.totalShots) |> String.left 5 . show
+        finalTime  = g.playTime   |> String.padLeft 5 '0' . String.left 4 . show . inSeconds
+        accuracy   = max 0 (100.0 * (toFloat g.score)/(toFloat g.totalShots)) |> String.left 5 . show
     in group [
-               "YOU DIED" |> txt lightRed |> toForm |> move (0, padding*2)
-             , "Final Score:  " ++ finalScore |> txt white |> toForm |> move (0, padding)
-             , "Total Shots:  " ++ totalShots |> txt white |> toForm |> move (0, 0)
-             , "Accuracy:     " ++  accuracy  ++ "%" |> txt white |> toForm |> move (0, -padding)
-             , "Press 'r' to play again!" |> txt white |> toForm |> move (0, -padding*2)
+               "YOU DIED" |> txt lightRed |> toForm |> move (0, padding*3.5)
+             , "Survival Time: " ++ finalTime ++ " seconds" |> txt white |> toForm |> move (0, padding*1.5)
+             , "Final Score:  " ++ finalScore |> txt white |> toForm |> move (0, padding*0.5)
+             , "Total Shots:  " ++ totalShots |> txt white |> toForm |> move (0, -padding*0.5)
+             , "Accuracy:     " ++  accuracy  ++ "%" |> txt white |> toForm |> move (0, -padding*1.5)
+             , "Press 'r' to play again!" |> txt white |> toForm |> move (0, -padding*2.5)
              ]
 
 make : PlayerO -> Form
