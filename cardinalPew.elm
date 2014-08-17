@@ -37,13 +37,13 @@ type PlayerO  = Player (GameObject {})
 type EnemyO   = Enemy  (GameObject {})
 type ShotO    = Shot   (GameObject {})
 type BombO    = ShotO
+type Particle = ShotO
 type GameOs   = Game   (GameObject {}) (GameObject {}) (GameObject {})
 type StdGen   = Generator.Generator Generator.Standard.Standard
-type Particle = GameObject {}
 
 --Model types.
 data PlayState    = Start | Controls | Playing | Paused | GameOver
-data WeaponTypes  = Blaster | WaveBeam | Bomb
+data WeaponTypes  = Blaster | WaveBeam | Bomb | Debris
 type Game p e s   = { player:(Player p), enemies:[Enemy e], shots:[Shot s]
                     , bombs:[BombO], particles:[Particle], score:Int, totalShots:Int
                     , paused:Time, playTime:Time, playState:PlayState, rGen:StdGen
@@ -86,19 +86,19 @@ genEnemies t halfW halfH g =
       eR  = (abs r') * 30   |> clamp 10 30
   in ({ x=halfW+100, y=eY, vx=eVx, vy=0, sides=eS, radius=eR, alive=True, created=t }, g')
 
-genParticles : StdGen -> EnemyO -> (StdGen, Particle)
-genParticles g o = 
+genParticles : Time -> StdGen -> EnemyO -> (StdGen, Particle)
+genParticles t g o = 
     let ([vx',vy'], g') = Generator.listOf (Generator.floatRange (-1, 1)) 2 g
         pVx = abs vx' * 20 |> clamp 5 20 
         pVy = vy' * 10
-    in  (g',{ x=o.x, y=o.y, vx=pVx,  vy=pVy,  radius=o.radius, alive=True })
+    in  (g',{ kind=Debris, x=o.x, y=o.y, vx=pVx,  vy=pVy, radius=o.radius, alive=True, fired=t })
 
-nParticles : Int -> EnemyO -> StdGen -> [Particle]
-nParticles i e gen = 
-    let (newG, newP) = genParticles gen e
+nParticles : Time -> Int -> EnemyO -> StdGen -> [Particle]
+nParticles t i e gen = 
+    let (newG, newP) = genParticles t gen e
     in case i of
             0 -> []
-            otherwise -> newP :: (nParticles (i-1) e newG)
+            otherwise -> newP :: (nParticles t (i-1) e newG)
 
 --COLLISION & BOUNDS CHECKS
 collision : GameObject o -> GameObject o -> Bool
@@ -214,7 +214,7 @@ explodeBomb t b =
                             | otherwise -> True }
 
 shotsHit : [ShotO] -> EnemyO -> EnemyO
-shotsHit s e = if any (\shot -> collision shot e) s then { e | alive <-  False }
+shotsHit s e = if any (\shot -> collision shot e) s then { e | alive <- False }
                else e
 
 addShots i g = 
@@ -233,7 +233,7 @@ stepEnemies i g  =
         es'    = if (i.sinceStart - lastC.created >= 1000) 
                  then (fst <| genEnemies i.sinceStart g.halfWidth g.halfHeight g.rGen) :: inPlay 
                  else inPlay
-    in map (\x -> genericPhysics i.delta g.halfHeight . shotsHit g.bombs . shotsHit g.shots <| x) es'
+    in map (\x -> genericPhysics i.delta g.halfHeight . shotsHit g.particles . shotsHit g.bombs . shotsHit g.shots <| x) es'
 
 stepWeapons i g = 
     let cleanShots = g.shots |> filter (\o -> not . outOfBounds g.halfWidth g.halfHeight <| o) 
@@ -251,7 +251,7 @@ stepBombs i g =
 stepParticles i g =
     let currentPs    = filter (\p -> not . outOfBounds g.halfWidth g.halfHeight <| p) g.particles
         deadEs       = filter (\e -> not e.alive) g.enemies
-        allParticles = concatMap (\e -> nParticles e.sides e g.rGen) deadEs
+        allParticles = concatMap (\e -> nParticles e.created e.sides e g.rGen) deadEs
     in allParticles ++ currentPs |> map (\x -> particlePhysics i.delta g.halfHeight <| x)
 
 stepPlayState i g =
@@ -353,7 +353,8 @@ makeStartScreen g =
     , "The fleet was all but exterminated."                  |> txt white |> toForm |> move (0, padding) 
     , "You are Cardinal, the last of the Triangle warriors." |> txt white |> toForm |> move (0, 0) 
     , "You have a blaster, a wave beam, and three bombs."    |> txt white |> toForm |> move (0, -padding*0.5)
-    , "You must survive to tell the tale."                   |> txt white |> toForm |> move (0, -padding)
+    , "Don't let them hit you, and don't let them past."     |> txt white |> toForm |> move (0, -padding)
+    , "You must hold them off as long as you can."           |> txt white |> toForm |> move (0, -padding*1.5)
     , "Press 'p' to view the controls."                      |> txt white |> toForm |> move (0, -padding*2.5)
     , "Press 'space' to join the battle."                    |> txt white |> toForm |> move (0, -padding*3)
     ]
