@@ -119,17 +119,15 @@ genericPhysics t halfH p = { p | y <- p.y + t * p.vy  |> clamp (-halfH+padding/2
                                , x <- p.x + t * p.vx }
 
 shotPhysics : Time -> Float -> ShotO -> ShotO 
-shotPhysics t halfH s  = { s | y <- if | s.kind /= WaveBeam -> s.y  |> clamp (-halfH) (halfH-hud)
-                                       | otherwise -> s.y - 2*(sin <| (s.x)/50 ) |> clamp (-halfH) (halfH)
-                             , x <- if | s.kind /= WaveBeam -> s.x + t * s.vx 
-                                       | otherwise  -> s.x + t * s.vx  }
-    
-particlePhysics : Time -> Float -> GameObject o -> GameObject o
-particlePhysics t halfH p = { p | y <- p.y + t * p.vy * 2 |> clamp (-halfH-100) (halfH+100)
-                                , x <- p.x + t * p.vx }
-
-bombPhysics : Time -> PlayerO -> BombO -> BombO
-bombPhysics t p b = { b | x <- b.x + t * b.vx * 50 |> clamp p.x 0 }
+shotPhysics t halfH s  = 
+    case s.kind of
+        WaveBeam   -> { s | y <- s.y - 2*(sin <| (s.x)/50 ) |> clamp (-halfH) (halfH)
+                          , x <- s.x + t * s.vx }
+        Debris     -> { s | y <- s.y + t * s.vy * 2 |> clamp (-halfH-100) (halfH+100)
+                          , x <- s.x + t * s.vx }
+        Bomb       -> { s | x <- s.x + t * s.vx * 50 |> clamp s.x 0 }
+        otherwise  -> { s | y <- s.y |> clamp (-halfH) (halfH-hud)
+                        , x <- s.x + t * s.vx  }
 
 --MOVEMENT
 moveP : Input -> PlayerO -> PlayerO
@@ -246,13 +244,13 @@ stepWeapons i g =
 stepBombs i g = 
     let bs'   = fireBomb i g.player g.bombs |> filter (\b -> b.alive)
         lastB = bs' |> listToMaybe |> maybe 0 (\b -> b.fired)
-    in bs' |> map (\b -> bombPhysics i.delta  g.player <| explodeBomb i.sinceStart <| b)
+    in bs' |> map (\b -> shotPhysics i.delta  g.halfHeight <| explodeBomb i.sinceStart <| b)
 
 stepParticles i g =
     let currentPs    = filter (\p -> not . outOfBounds g.halfWidth g.halfHeight <| p) g.particles
         deadEs       = filter (\e -> not e.alive) g.enemies
         allParticles = concatMap (\e -> nParticles e.created e.sides e g.rGen) deadEs
-    in allParticles ++ currentPs |> map (\x -> particlePhysics i.delta g.halfHeight <| x)
+    in allParticles ++ currentPs |> map (\x -> shotPhysics i.delta g.halfHeight <| x)
 
 stepPlayState i g =
     let togglePause = (snd i.pause) && (fst i.pause) - g.paused > 5
