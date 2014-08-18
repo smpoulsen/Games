@@ -51,7 +51,7 @@ type Game p e s   = { player:(Player p), enemies:[Enemy e], shots:[Shot s]
 type Player p     = { p | weapons:[Weapon], bombs:Int, boost:Bool, health:Int }
 type Enemy  e     = { e | sides:Int, created:Time  }
 type Shot   s     = { s | kind:WeaponTypes, fired:Time }
-type GameObject o = { o | x:Float, y:Float, vy:Float, vx:Float, radius:Float, alive:Bool} 
+type GameObject o = { o | x:Float, y:Float, vy:Float, vx:Float, radius:Float, alive:Bool } 
 type Weapon       = { kind:WeaponTypes, active:Bool, cooldown:Time, lastSwapped:Time, fillColor:Color }
 
 --Predefined objects.
@@ -255,9 +255,8 @@ stepPlayState i g =
           | otherwise -> g.playState 
 
 stepGame i g = 
-    let paused = g.playState == Paused || g.playState == Start
-        playState' = stepPlayState i g
-    in if i.restart && (paused || not g.player.alive)
+    let playState' = stepPlayState i g
+    in if i.restart && (playState' == Paused || not g.player.alive)
        then { defaultGame | playState <- Playing }
        else case g.playState of
         Playing -> 
@@ -294,95 +293,82 @@ hud     = 50
 txt : Color -> String -> Element
 txt c = centered . monospace . Text.height 18 . Text.color c . toText 
 
-header : String -> Element
-header = centered . monospace . Text.height 40 . Text.color lightRed . toText 
+header : String -> Form
+header = toForm . centered . monospace . Text.height 40 . Text.color lightRed . toText 
 
 --makeHud : GameOs -> Input -> Form
 makeHud g i = 
-    let p        = g.player
-        equipped = activeWeapon p.weapons
-        lastShot = g.shots |> listToMaybe |> maybe 0 (\x -> x.fired)
-        score    = String.padLeft 5 '0' . show <| g.score
-        timer    = String.padLeft 5 '0' . show . round . inSeconds <| g.playTime
-        paused   = g.playState == Paused
-        start    = g.playState == Start
+    let p         = g.player
+        equipped  = activeWeapon p.weapons
+        lastShot  = g.shots |> listToMaybe |> maybe 0 (\x -> x.fired)
+        bombCount = ("●" |> repeat p.bombs |> String.join " ")
+        score     = String.padLeft 5 '0' . show <| g.score
+        timer     = String.padLeft 5 '0' . show . round . inSeconds <| g.playTime
+        paused    = g.playState == Paused
+        start     = g.playState == Start
     in group
           [
-              "Health: " ++ show p.health ++ "%" |> txt white 
-                                                 |> toForm 
-                                                 |> move (-g.halfWidth+padding*2, g.halfHeight-padding/2)
-            , "Weapon: " ++ show equipped.kind   |> txt equipped.fillColor 
-                                                 |> toForm 
-                                                 |> move (-g.halfWidth/2.5, g.halfHeight-padding/2)
-            , "Bombs: "  ++ ("●" |> repeat p.bombs |> String.join " ")
-                                                   |> txt lightBlue 
-                                                   |> toForm 
-                                                   |> move (0, g.halfHeight-padding/2)
-            , "Time: " ++ timer  |> txt white 
-                                 |> toForm 
-                                 |> move (g.halfWidth-padding*6, g.halfHeight-padding/2)
-            , "Score: " ++ score |> txt white 
-                                 |> toForm 
-                                 |> move (g.halfWidth-padding*2, g.halfHeight-padding/2)
+              "Health: " ++ show p.health ++ "%" |> txt white |> toForm |> move (-g.halfWidth+padding*2, g.halfHeight-padding/2)
+            , "Weapon: " ++ show equipped.kind   |> txt equipped.fillColor |> toForm |> move (-g.halfWidth/2.5, g.halfHeight-padding/2)
+            , "Bombs: "  ++ bombCount |> txt lightBlue |> toForm |> move (0, g.halfHeight-padding/2)
+            , "Time: "   ++ timer     |> txt white |> toForm |> move (g.halfWidth-padding*6, g.halfHeight-padding/2)
+            , "Score: "  ++ score     |> txt white |> toForm |> move (g.halfWidth-padding*2, g.halfHeight-padding/2)
             , if paused then makePauseScreen g else spacer 0 0 |> toForm         
             ]
 
 makeStartScreen g =
-    group [
-            " 
+    group [ "
  ██████╗ █████╗ ██████╗ ██████╗ ██╗███╗   ██╗ █████╗ ██╗        ██████╗ ███████╗██╗    ██╗
 ██╔════╝██╔══██╗██╔══██╗██╔══██╗██║████╗  ██║██╔══██╗██║     ██╗██╔══██╗██╔════╝██║    ██║
 ██║     ███████║██████╔╝██║  ██║██║██╔██╗ ██║███████║██║     ╚═╝██████╔╝█████╗  ██║ █╗ ██║
 ██║     ██╔══██║██╔══██╗██║  ██║██║██║╚██╗██║██╔══██║██║     ██╗██╔═══╝ ██╔══╝  ██║███╗██║
 ╚██████╗██║  ██║██║  ██║██████╔╝██║██║ ╚████║██║  ██║███████╗╚═╝██║     ███████╗╚███╔███╔╝
  ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝   ╚═╝     ╚══════╝ ╚══╝╚══╝ " |> txt lightRed |> toForm |> move (0, padding*4)
-    , "Triangalia fell when the [4≤n≤10]gons attacked."      |> txt white |> toForm |> move (0, padding*1.5)
-    , "The fleet was all but exterminated."                  |> txt white |> toForm |> move (0, padding) 
-    , "You are Cardinal, the last of the Triangle warriors." |> txt white |> toForm |> move (0, 0) 
-    , "You have a blaster, a wave beam, and three bombs."    |> txt white |> toForm |> move (0, -padding*0.5)
-    , "Don't let them hit you, and don't let them past."     |> txt white |> toForm |> move (0, -padding)
-    , "You must hold them off as long as you can."           |> txt white |> toForm |> move (0, -padding*1.5)
-    , "Press 'p' to view the controls."                      |> txt white |> toForm |> move (0, -padding*2.5)
-    , "Press 'space' to join the battle."                    |> txt white |> toForm |> move (0, -padding*3)
-    ]
+          , "Triangalia fell when the [4≤n≤10]gons attacked."      |> txt white |> toForm |> move (0, padding*1.5)
+          , "The fleet was all but exterminated."                  |> txt white |> toForm |> move (0, padding) 
+          , "You are Cardinal, the last of the Triangle warriors." |> txt white |> toForm |> move (0, 0) 
+          , "You have a blaster, a wave beam, and three bombs."    |> txt white |> toForm |> move (0, -padding*0.5)
+          , "Don't let them hit you, and don't let them past."     |> txt white |> toForm |> move (0, -padding)
+          , "You must hold them off as long as you can."           |> txt white |> toForm |> move (0, -padding*1.5)
+          , "Press 'p' to view the controls."                      |> txt white |> toForm |> move (0, -padding*2.5)
+          , "Press 'space' to join the battle."                    |> txt white |> toForm |> move (0, -padding*3)
+          ]
 
 makeControlsScreen =
-    group [
-          "CONTROLS" |> header |> toForm |> move (0, padding*2.5)
-        , "'p' - to pause"                 |> txt white |> toForm |> move (0, padding*1.5)
-        , "'&uarr;&darr;' - to move ship"  |> txt white |> toForm |> move (-padding*4, padding*0.5)
-        , "'shift' - to boost speed"       |> txt white |> toForm |> move (-padding*4, -padding*0.5)
-        , "'space' - to shoot weapon"      |> txt white |> toForm |> move (padding*4, padding*0.5)
-        , "'c' - to change weapons"        |> txt white |> toForm |> move (padding*4, -padding*0.5)
-        , "'b' - to deploy a bomb"         |> txt white |> toForm |> move (0, -padding*1.5)
-         , "Press 'p' to begin."           |> txt white |> toForm |> move (0, -padding*2.5)
-    ]
+    group [ "CONTROLS"                       |> header    |> move (0, padding*2.5)
+          , "'p' - to pause"                 |> txt white |> toForm |> move (0, padding*1.5)
+          , "'&uarr;&darr;' - to move ship"  |> txt white |> toForm |> move (-padding*4, padding*0.5)
+          , "'shift' - to boost speed"       |> txt white |> toForm |> move (-padding*4, -padding*0.5)
+          , "'space' - to shoot weapon"      |> txt white |> toForm |> move (padding*4, padding*0.5)
+          , "'c' - to change weapons"        |> txt white |> toForm |> move (padding*4, -padding*0.5)
+          , "'b' - to deploy a bomb"         |> txt white |> toForm |> move (0, -padding*1.5)
+          , "Press 'p' to begin."            |> txt white |> toForm |> move (0, -padding*2.5)
+          ]
 
 makePauseScreen g =
-    group [ 
-          "PAUSED" |> header |> toForm |> move (0, padding*2.5)
-        , "'p' - to resume"       |> txt white |> toForm |> move (0, padding*1.5)
-        , "'r' - to restart game" |> txt white |> toForm |> move (0, padding)
-        , "'&uarr;&darr;' - to move ship"  |> txt white |> toForm |> move (-padding*4, 0)
-        , "'shift' - to boost speed"       |> txt white |> toForm |> move (-padding*4, -padding*0.5)
-        , "'space' - to shoot weapon"      |> txt white |> toForm |> move (padding*4, 0)
-        , "'c' - to change weapons"        |> txt white |> toForm |> move (padding*4, -padding*0.5)
-        , "'b' - to deploy a bomb"         |> txt white |> toForm |> move (0, -padding*1.5)
-    ]
+    group [ "PAUSED"                         |> header |> move (0, padding*2.5)
+          , "'p' - to resume"                |> txt white |> toForm |> move (0, padding*1.5)
+          , "'r' - to restart game"          |> txt white |> toForm |> move (0, padding)
+          , "'&uarr;&darr;' - to move ship"  |> txt white |> toForm |> move (-padding*4, 0)
+          , "'shift' - to boost speed"       |> txt white |> toForm |> move (-padding*4, -padding*0.5)
+          , "'space' - to shoot weapon"      |> txt white |> toForm |> move (padding*4, 0)
+          , "'c' - to change weapons"        |> txt white |> toForm |> move (padding*4, -padding*0.5)
+          , "'b' - to deploy a bomb"         |> txt white |> toForm |> move (0, -padding*1.5)
+          ]
 
 makeDeathScreen g =
     let finalScore = g.score      |> String.padLeft 5 '0' . show
         totalShots = g.totalShots |> String.padLeft 5 '0' . show 
         finalTime  = g.playTime   |> String.padLeft 5 '0' . String.left 4 . show . inSeconds
         accuracy   = max 0 (100.0 * (toFloat g.score)/(toFloat g.totalShots)) |> String.left 5 . show
-    in group [
-               "GAME OVER" |> txt lightRed |> toForm |> move (0, padding*3.5)
-             , "Survival Time: " ++ finalTime ++ " seconds" |> txt white |> toForm |> move (0, padding*1.5)
-             , "Final Score:  " ++ finalScore |> txt white |> toForm |> move (0, padding*0.5)
-             , "Total Shots:  " ++ totalShots |> txt white |> toForm |> move (0, -padding*0.5)
-             , "Accuracy:     " ++  accuracy  ++ "%" |> txt white |> toForm |> move (0, -padding*1.5)
-             , "Press 'r' to play again!" |> txt white |> toForm |> move (0, -padding*2.5)
-             ]
+    in 
+    group [ "GAME OVER"                                  |> txt lightRed |> toForm |> move (0, padding*3.5)
+          , "Survival Time: " ++ finalTime ++ " seconds" |> txt white |> toForm |> move (0, padding*1.5)
+          , "Final Score:  " ++ finalScore               |> txt white |> toForm |> move (0, padding*0.5)
+          , "Total Shots:  " ++ totalShots               |> txt white |> toForm |> move (0, -padding*0.5)
+          , "Accuracy:     " ++  accuracy  ++ "%"        |> txt white |> toForm |> move (0, -padding*1.5)
+          , "Press 'r' to play again!"                   |> txt white |> toForm |> move (0, -padding*2.5)
+          ]
 
 makePlayer : PlayerO -> Form
 makePlayer p = 
@@ -393,9 +379,9 @@ makePlayer p =
 
 makeShots : ShotO -> Form
 makeShots s = 
-    let fill = if | s.kind == Blaster -> lightRed
+    let fill = if | s.kind == Blaster  -> lightRed
                   | s.kind == WaveBeam -> lightPurple
-                  | otherwise -> lightBlue
+                  | otherwise          -> lightBlue
     in circle s.radius |> outlined (solid fill)
                        |> move (s.x, s.y)
 
@@ -408,20 +394,13 @@ makeEnemies : EnemyO -> Form
 makeEnemies enemy = if enemy.alive then 
     ngon enemy.sides enemy.radius |> outlined (solid white)
                                   |> move (enemy.x, enemy.y)
-    else spacer 1 1 |> toForm
+    else spacer 0 0 |> toForm
 
 makeParticles : Particle -> Form
 makeParticles p = 
-    let particleGradient = 
-        radial (0,0) p.radius (7,-15) 50
-          [ (   0, yellow)
-          , (0.75, lightRed)
-          , (   1, white)
-          ]
-    in rect p.radius 2 |> gradient particleGradient
-                       |> move (p.x, p.y)
-                       |> rotate (tan (p.y+p.vy))
-
+    rect p.radius 2 |> filled yellow
+                    |> move (p.x, p.y)
+                    |> rotate (tan (p.y+p.vy))
 
 display : (Int, Int) -> GameOs -> Input -> Element
 display (w', h') g i = 
@@ -436,11 +415,11 @@ display (w', h') g i =
                       Controls  -> makeControlsScreen
                       GameOver  -> makeDeathScreen g
                       otherwise -> makeHud g i 
-              ,  if g.playState == Playing then makePlayer g.player else spacer 0 0 |> toForm
-              ]
-               , map makeShots g.shots
-               , map makeEnemies g.enemies
-               , map makeBombs g.bombs
-               , map makeParticles g.particles] 
+              ,  if g.playState == Playing then makePlayer g.player else spacer 0 0 |> toForm ]
+              , map makeShots g.shots
+              , map makeEnemies g.enemies
+              , map makeBombs g.bombs
+              , map makeParticles g.particles
+              ] 
 
 main = lift3 display Window.dimensions gameState input
