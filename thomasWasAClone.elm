@@ -9,6 +9,7 @@ import Time
 import Tpoulsen.Lib (elem, listToMaybe)
 import Window
 
+
 --INPUTS
 type Input = { xDir:Int, yDir:Int, shift:Bool, delta:Time }
 

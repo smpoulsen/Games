@@ -2,6 +2,8 @@
 import Keyboard
 import Window
 
+import Tpoulsen.Vectors (collisionMTV)
+
 --INPUT
 
 type Input = { x:Int, y:Int, delta:Time }
@@ -14,18 +16,18 @@ input = sampleOn delta (Input <~ lift .x Keyboard.arrows
                                ~ lift .y Keyboard.arrows
                                ~ delta)
 
-
 --MODEL
-type Tile    = { walkability:Float, coords:(Float, Float), dimensions:(Float,Float), repr:Form }
+type Tile    = { walkability:Float, coords:(Float, Float), dimensions:(Float,Float)
+               , verticies:[(Float,Float)], repr:Form }
 type GameMap = [Tile]
 
 type Game    = { level:GameMap, player:Player }
-type Player  = { x:Float, y:Float, w:Float, h:Float }
+type Player  = { x:Float, y:Float, vx:Float, vy:Float, w:Float, h:Float }
 
 defaultGame = { level=defaultMap, player=defaultPlayer }
 
 defaultPlayer : Player
-defaultPlayer = { x=0.0, y=-100.0, w=15, h=15 }
+defaultPlayer = { x=100.0, y=-130.0, vx=1, vy=1, w=15, h=15 }
 defaultMap  = makeMap gameMap
 gameMap : [[Int]]
 gameMap = [ [1,2,2,1,1,2,2,1,2,1,1,2]
@@ -44,14 +46,15 @@ gameMap = [ [1,2,2,1,1,2,2,1,2,1,1,2]
 
 --UPDATE
 
---Collision checks aren't perfect; everything assumed to be roughly circular.
-{-
-collision : Tile -> Player -> Bool
-collision o1 o2 = (o1.x + o1.radius >= o2.x - o2.radius && 
-                   o1.x - o1.radius <= o2.x + o2.radius) &&
-                  (o1.y + o1.radius >= o2.y - o2.radius && 
-                   o1.y - o1.radius <= o2.y + o2.radius)
--}
+squareVerticies : (Float, Float) -> (Float, Float) -> [(Float, Float)]
+squareVerticies (x,y) (w,h) = 
+    let (hw, hh) = (w/2, h/2)
+    in [(x-hw, y+hh), (x+hw,y+hh), (x+hw, y-hh), (x-hw,y-hh)]
+
+--Calculate displacement vector to move player out of collision with un-walkable tiles.
+pushBack : ((Float, Float),(Float, Float)) -> (Float, Float) -> (Float,Float)
+pushBack ((x1,y1),(x2,y2)) (px,yx) = (0,0)
+
 outOfBounds : Float -> Float -> Player -> Bool
 outOfBounds halfW halfH o = 
     o.x + (o.w/2) > halfW || o.x - (o.w/2) < -halfW || 
@@ -60,11 +63,18 @@ outOfBounds halfW halfH o =
 euclideanDist : (number,number) -> (number,number) -> Float
 euclideanDist (x1,y1) (x2,y2) = sqrt <| (x2-x1)^2 + (y2-y1)^2
 
-movingTowards : Tile -> Player -> (Float, Float) -> Bool
-movingTowards t p (x,y) = 
+movingAway : Tile -> Player -> (Float, Float) -> Bool
+movingAway t p (x,y) = 
     let dist  = euclideanDist (.coords t) (p.x, p.y)
         dist' = euclideanDist (.coords t) (p.x+x, p.y+y)
     in dist' < dist 
+
+movingTowards : Input -> GameMap -> Player -> Tile
+movingTowards i m p =
+    let allCoords = map .coords m
+        x' = p.x + (toFloat i.x)
+        y' = p.y + (toFloat i.y)
+    in fst . head . drop 1 . sortBy snd . zip m <| map (euclideanDist (x',y')) allCoords
 
 standingOn : GameMap -> Player -> Tile
 standingOn m p = 
@@ -73,17 +83,23 @@ standingOn m p =
 
 walk : Input -> Tile -> Player -> Player
 walk i t p = 
-    let (x',y') = (toFloat i.x, toFloat i.y)
-    in case t.walkability of
-        0 ->         { p | x <- if | not (movingTowards t p (x',y')) -> p.x + x' |> clamp -300 300
-                                   | otherwise -> p.x 
-                         , y <- if | not (movingTowards t p (x',y')) -> p.y + y' |> clamp -300 300
-                                   | otherwise -> p.y }
-        otherwise -> { p | x <- p.x + (toFloat i.x)*t.walkability/2 |> clamp -300 300
-                         , y <- p.y + (toFloat i.y)*t.walkability/2 |> clamp -300 300 }
+    let playerVerticies      = squareVerticies (p.x,p.y) (p.w,p.h)
+        ((xMTV,yMTV),magMTV) = collisionMTV t.verticies playerVerticies
+    in if magMTV > 0 && t.walkability == 0
+       then  { p | vx <- xMTV * magMTV 
+                 , vy <- yMTV * magMTV }
+        else { p | vx <- t.walkability/5
+                 , vy <- t.walkability/5 }
+
+physics : Input -> Tile -> Player -> Player
+physics i t p = 
+    { p | x <- p.x + (toFloat i.x)*p.vx
+        , y <- p.y + (toFloat i.y)*p.vy }
 
 stepPlayer : Input -> GameMap -> Player -> Player
-stepPlayer i m p = p |> walk i (standingOn m p)
+stepPlayer i m p = 
+    let t  = standingOn m p
+    in p |> physics i t . walk i t
 
 stepGame : Input -> Game -> Game
 stepGame i g = { g | player <- stepPlayer i g.level g.player }
@@ -91,9 +107,7 @@ stepGame i g = { g | player <- stepPlayer i g.level g.player }
 gameState : Signal Game
 gameState = foldp stepGame defaultGame input
 
-
-
-(mainWidth, mainHeight) = (600, 600)
+(mainWidth, mainHeight) = (800, 600)
 (originX, originY)      = (-(mainWidth/2), mainHeight/2)
 
 makeMap : [[Int]] -> GameMap
@@ -116,6 +130,7 @@ makeWater x y =
     { walkability = 0
     , coords      = (originX+x, originY-y)
     , dimensions  = (50,50)
+    , verticies   = squareVerticies (originX+x, originY-y) (50, 50)
     , repr        = rect 50 50 |> filled blue
                                |> move (originX+x, originY-y)
     }
@@ -125,6 +140,7 @@ makeGrass x y =
     { walkability = 10
     , coords      = (originX+x, originY-y)
     , dimensions  = (50,50)
+    , verticies   = squareVerticies (originX+x, originY-y) (50, 50)
     , repr        = rect 50 50 |> filled green
                                |> move (originX+x, originY-y)
     }
@@ -134,22 +150,23 @@ makeSand x y =
     { walkability = 2
     , coords      = (originX+x, originY-y)
     , dimensions  = (50,50)
+    , verticies   = squareVerticies (originX+x, originY-y) (50, 50)
     , repr        = rect 50 50 |> filled brown
                                |> move (originX+x, originY-y)
     }
 
 makePlayer : Player -> Form
 makePlayer p =
-    rect p.h p.w |> filled white
+    rect p.h p.w |> filled black
                  |> move (p.x, p.y)
 
 display : (Int, Int) -> Game -> Element
 display (w,h) g =
     let playMap = defaultMap
-    in container w h middle <| collage mainWidth mainHeight <|
+    in collage (mainWidth+100) (mainHeight+100) <|
         concat [ map .repr playMap
                , [makePlayer g.player]
-               , [(g.player.x, g.player.y) |> asText |> toForm ]
+               , [squareVerticies (g.player.x, g.player.y) (g.player.w,g.player.h) |> asText |> toForm ]
         --, [playMap |> asText |> toForm]
         ]
 
