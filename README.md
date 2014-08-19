@@ -2,7 +2,7 @@
 
 Small games written to to pass the time and gain familiarity with Haskell, Elm, and FRP.
 
-###cardinalPew.elm - <a href="travispoulsen.com/cardinalPew.html">Play it!</a>
+###cardinalPew.elm - <a href="http://www.travispoulsen.com/cardinalPew.html">Play it!</a>
 An Asteroids inspired, constant-scrolling space shooter. Defeat the oncoming [4≤n≤10]gons and avenge the fallen triangles.
 
 ###Tpoulsen.Vectors
@@ -14,7 +14,7 @@ Some (read: two as of now) Haskell functions implemented in Elm.
 ###tileTesting.elm
 The beginnings of a tile-based, top-down game. Currently has functioning tile engine.
 
-###thomasWasAClone.elm - <a href="travispoulsen.com/thomasWasAClone.html">Play it!</a>
+###thomasWasAClone.elm - <a href="http://www.travispoulsen.com/thomasWasAClone.html">Play it!</a>
 First attempt at doing anything in Elm or with FRP. A single level platformer. Get the rectangle across the level without falling in a pit.
 
 ###FalloutHacking.hs
