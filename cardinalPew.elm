@@ -50,10 +50,11 @@ type Game p e s   = { player:(Player p), enemies:[Enemy e], shots:[Shot s]
                     , halfWidth:Float, halfHeight:Float }
 type Player p     = { p | weapons:[Weapon], bombs:Int, boost:Bool, health:Int }
 type Enemy  e     = { e | sides:Int, created:Time  }
-type Weapon       = { kind:WeaponTypes, active:Bool, cooldown:Time, lastSwapped:Time, fillColor:Color }
 type Shot   s     = { s | kind:WeaponTypes, fired:Time }
-type GameObject o = { o | x:Float, y:Float, vy:Float, vx:Float, radius:Float, alive:Bool} 
+type GameObject o = { o | x:Float, y:Float, vy:Float, vx:Float, radius:Float, alive:Bool } 
+type Weapon       = { kind:WeaponTypes, active:Bool, cooldown:Time, lastSwapped:Time, fillColor:Color }
 
+--Predefined objects.
 defaultGame : GameOs
 defaultGame = { player=player1, enemies=[enemy1], shots=[], bombs=[], particles=[]
               , score=0, totalShots=0, paused=0, playTime=0, playState=Start, rGen=gen
@@ -63,11 +64,13 @@ player1  : PlayerO
 player1  = { x=-500+padding, y=0, vx=0, vy=0, weapons=[blaster, waveBeam]
            , bombs=3, radius=15, health=100, boost=False, alive=True }
 blaster  : Weapon
-blaster  = { kind=Blaster, active=True,   cooldown=(50 * millisecond), lastSwapped=0, fillColor=lightRed }
+blaster  = { kind=Blaster, active=True,   cooldown=(50*millisecond), lastSwapped=0, fillColor=lightRed }
 waveBeam : Weapon
 waveBeam = { kind=WaveBeam, active=False, cooldown=(second), lastSwapped=0, fillColor=lightPurple }
+bomb     : Weapon
+bomb     = { kind=Bomb, active=False, cooldown=(5), lastSwapped=0, fillColor=lightBlue }
 enemy1   : EnemyO
-enemy1   =  { x=1000, y=0, vx=-1, vy=0, sides=5, radius=30, alive=True, created=0.0 }
+enemy1   = { x=1000, y=0, vx=-1, vy=0, sides=5, radius=30, alive=True, created=0.0 }
 
 
 ------ UPDATE ------
@@ -86,7 +89,7 @@ genEnemies t halfW halfH g =
       eR  = (abs r') * 30   |> clamp 10 30
   in ({ x=halfW+100, y=eY, vx=eVx, vy=0, sides=eS, radius=eR, alive=True, created=t }, g')
 
-genParticles : Time -> StdGen -> EnemyO -> (StdGen, Particle)
+genParticles : Time -> StdGen -> GameObject o -> (StdGen, Particle)
 genParticles t g o = 
     let ([vx',vy'], g') = Generator.listOf (Generator.floatRange (-1, 1)) 2 g
         pVx = abs vx' * 20 |> clamp 5 20 
@@ -101,6 +104,7 @@ nParticles t i e gen =
             otherwise -> newP :: (nParticles t (i-1) e newG)
 
 --COLLISION & BOUNDS CHECKS
+--Collision checks aren't perfect; everything assumed to be roughly circular.
 collision : GameObject o -> GameObject o -> Bool
 collision o1 o2 = (o1.x + o1.radius >= o2.x - o2.radius && 
                    o1.x - o1.radius <= o2.x + o2.radius) &&
@@ -119,43 +123,41 @@ genericPhysics t halfH p = { p | y <- p.y + t * p.vy  |> clamp (-halfH+padding/2
                                , x <- p.x + t * p.vx }
 
 shotPhysics : Time -> Float -> ShotO -> ShotO 
-shotPhysics t halfH s  = { s | y <- if | s.kind /= WaveBeam -> s.y  |> clamp (-halfH) (halfH-hud)
-                                       | otherwise -> s.y - 2*(sin <| (s.x)/50 ) |> clamp (-halfH) (halfH)
-                             , x <- if | s.kind /= WaveBeam -> s.x + t * s.vx 
-                                       | otherwise  -> s.x + t * s.vx  }
-    
-particlePhysics : Time -> Float -> GameObject o -> GameObject o
-particlePhysics t halfH p = { p | y <- p.y + t * p.vy * 2 |> clamp (-halfH-100) (halfH+100)
-                                , x <- p.x + t * p.vx }
-
-bombPhysics : Time -> PlayerO -> BombO -> BombO
-bombPhysics t p b = { b | x <- b.x + t * b.vx * 50 |> clamp p.x 0 }
+shotPhysics t halfH s  = 
+    case s.kind of
+        WaveBeam   -> { s | y <- s.y - 2*(sin <| (s.x)/50 ) |> clamp (-halfH) (halfH)
+                          , x <- s.x + t * s.vx }
+        Debris     -> { s | y <- s.y + t * s.vy * 2 |> clamp (-halfH-100) (halfH+100)
+                          , x <- s.x + t * s.vx }
+        Bomb       -> { s | x <- s.x + t * s.vx * 50 |> clamp s.x 0 }
+        otherwise  -> { s | y <- s.y |> clamp (-halfH) (halfH-hud)
+                        , x <- s.x + t * s.vx  }
 
 --MOVEMENT
 moveP : Input -> PlayerO -> PlayerO
 moveP i p = 
-    if p.health > 0 
+    if p.alive
     then { p | vy <- if | i.shift   -> toFloat <| 6 * i.yDir
                         | otherwise -> toFloat <| 2 * i.yDir 
-             , x  <- -(toFloat (fst i.windowSize)/2)+padding
-         }
+             , x  <- -(toFloat (fst i.windowSize)/2)+padding }
     else p
 
 --HEALTH & SCORE
 healthLost : [EnemyO] -> PlayerO -> PlayerO
 healthLost es p = 
     let gotPast = filter (\e -> e.x+e.radius <= p.x) es
+        damage  = gotPast |> sum . map (round . (\x-> x.radius/10))
     in { p | health <- if | any (\e -> collision p e) es -> 0
-                          | otherwise -> p.health - (sum . map (round . (\x-> x.radius/10 )) <| gotPast) }
+                          | otherwise -> p.health - damage |> clamp 0 100 }
 
 isAlive : PlayerO -> PlayerO
 isAlive p = { p | alive <- if | p.health <= 0 -> False
-                              | otherwise     -> True
-            } 
+                              | otherwise     -> True }
 
+scoreMod : Int -> [EnemyO] -> Int
 scoreMod score es = 
-    let dead = length <| filter (\e -> not e.alive) es
-    in score + dead
+    let numDead = es |> filter (\e -> not e.alive) |> length 
+    in score + numDead
 
 --WEAPONS
 activeWeapon : [Weapon] -> Weapon
@@ -165,47 +167,35 @@ activeWeapon ws = ws |> listToMaybe . filter (\x -> x.active)
 swapWeapons : Input -> PlayerO -> PlayerO
 swapWeapons i p = 
     let sinceSwapped = (fst i.swap) - (activeWeapon p.weapons).lastSwapped
-        toggleWeapon =  map (\x -> { x | active      <- not x.active
-                                       , lastSwapped <- (fst i.swap) })
+        toggleWeapon =  map (\w -> { w | active <- not w.active, lastSwapped <- (fst i.swap) })
         okayToSwap   = (snd i.swap) && sinceSwapped > 5
     in { p | weapons <- if | okayToSwap -> toggleWeapon p.weapons
                            | otherwise  -> p.weapons }
 
-shotCanFire : Input -> PlayerO -> [ShotO] -> Bool
-shotCanFire i p s =
-    let w = activeWeapon p.weapons
-        f = s |> listToMaybe |> maybe i.delta (\x -> x.fired)
-    in p.health > 0 && (snd i.fire) && (fst i.fire) - f >= w.cooldown 
+shotCanFire : (Time, Bool) -> Weapon -> PlayerO -> [ShotO] -> Bool
+shotCanFire (f, k) w p s =
+    let lastShot  = s |> listToMaybe |> maybe 0 (\x -> x.fired)
+        bombsAway = if w.kind == Bomb then p.bombs > 0 else True
+    in p.alive && bombsAway && k && f - lastShot >= w.cooldown 
 
-newShot : Input -> PlayerO -> [ShotO] -> [ShotO]
-newShot i p s = 
-    let w = activeWeapon p.weapons
-    in if shotCanFire i p s
-       then 
-            if w.kind == Blaster 
-            then { kind=w.kind, x=p.x+17, y=p.y,    vy=0, vx=5.0, radius=4.0, alive=True, fired=(fst i.fire) } :: s
-            else { kind=w.kind, x=p.x+17, y=p.y+15, vy=0, vx=8.0, radius=6.0, alive=True, fired=(fst i.fire) } ::
-                 { kind=w.kind, x=p.x+17, y=p.y,    vy=0, vx=8.0, radius=6.0, alive=True, fired=(fst i.fire) } ::
-                 { kind=w.kind, x=p.x+17, y=p.y-15, vy=0, vx=8.0, radius=6.0, alive=True, fired=(fst i.fire) } :: s
-       else s 
+newShot : Input -> Weapon -> PlayerO -> [ShotO] -> [ShotO]
+newShot i w p s = 
+    let fireable = if | w.kind /= Bomb -> shotCanFire i.fire w p s
+                      | otherwise      -> shotCanFire i.bomb bomb p s
+    in if fireable then
+      case w.kind of
+          Blaster  -> { kind=w.kind, x=p.x+17, y=p.y,    vy=0, vx=5.0, radius=4.0, alive=True, fired=(fst i.fire) } :: s
+          Bomb     -> { kind=Bomb,   x=p.x,    y=p.y,    vx=1, vy=0,   radius=10,  alive=True, fired=(fst i.bomb) } :: s
+          WaveBeam -> { kind=w.kind, x=p.x+17, y=p.y+15, vy=0, vx=8.0, radius=6.0, alive=True, fired=(fst i.fire) } ::
+                      { kind=w.kind, x=p.x+17, y=p.y,    vy=0, vx=8.0, radius=6.0, alive=True, fired=(fst i.fire) } ::
+                      { kind=w.kind, x=p.x+17, y=p.y-15, vy=0, vx=8.0, radius=6.0, alive=True, fired=(fst i.fire) } :: s
+    else s 
 
---bombCanFire : Input -> PlayerO -> [BombO] -> Bool
-bombCanFire i p b = 
-    let lastB = b |> listToMaybe |> maybe 0 (\b -> b.fired)
-    in p.health > 0 && p.bombs > 0 && (snd i.bomb) && (fst i.bomb) - lastB > 5
+shotBomb : Input -> [BombO] -> PlayerO -> PlayerO
+shotBomb i bs p = { p | bombs <- if | shotCanFire i.bomb bomb p bs  -> p.bombs - 1
+                                    | otherwise -> p.bombs }
 
---fireBomb : Input -> PlayerO -> [BombO] -> [BombO]
-fireBomb i p bs = 
-    if p.bombs > 0 && bombCanFire i p bs
-    then { x=p.x, y=p.y, vx=1, vy=0, radius=10, alive=True, kind=Bomb, fired=(fst i.bomb) } :: bs
-    else filter (\b -> b.alive ) bs
-
---shotBomb : Input -> [BombO] -> PlayerO -> PlayerO
-shotBomb i bs p = { p | bombs <- if | bombCanFire i p bs  -> p.bombs - 1
-                                    | otherwise -> p.bombs 
-                  }
-
---explodeBomb : Time -> BombO -> BombO
+explodeBomb : Time -> BombO -> BombO
 explodeBomb t b = 
     if (inSeconds t) - (inSeconds b.fired) < 1
     then { b | radius <- b.radius + 4 } 
@@ -218,9 +208,9 @@ shotsHit s e = if any (\shot -> collision shot e) s then { e | alive <- False }
                else e
 
 addShots i g = 
-    if shotCanFire i g.player g.shots
-    then g.totalShots + 1
-    else g.totalShots
+    let w = activeWeapon g.player.weapons
+    in if shotCanFire i.fire w g.player g.shots then g.totalShots + 1
+       else g.totalShots
 
 --STEPPERS
 --stepPlayer : Input -> Game PlayerO EnemyO ShotO -> Game PlayerO EnemyO ShotO
@@ -236,23 +226,23 @@ stepEnemies i g  =
     in map (\x -> genericPhysics i.delta g.halfHeight . shotsHit g.particles . shotsHit g.bombs . shotsHit g.shots <| x) es'
 
 stepWeapons i g = 
-    let cleanShots = g.shots |> filter (\o -> not . outOfBounds g.halfWidth g.halfHeight <| o) 
+    let w = activeWeapon g.player.weapons
+        cleanShots = g.shots |> filter (\o -> not . outOfBounds g.halfWidth g.halfHeight <| o) 
                              |> filter (\s -> if s.kind == Blaster 
                                               then not <| any (\e -> collision s e) g.enemies
                                               else s.alive)
-    in  cleanShots |> newShot i g.player
+    in  cleanShots |> newShot i w g.player
                    |> map (\x -> shotPhysics i.delta g.halfHeight <| x)
 
 stepBombs i g = 
-    let bs'   = fireBomb i g.player g.bombs |> filter (\b -> b.alive)
-        lastB = bs' |> listToMaybe |> maybe 0 (\b -> b.fired)
-    in bs' |> map (\b -> bombPhysics i.delta  g.player <| explodeBomb i.sinceStart <| b)
+    let bs' = newShot i bomb g.player g.bombs |> filter (\b -> b.alive)
+    in bs' |> map (\b -> shotPhysics i.delta  g.halfHeight <| explodeBomb i.sinceStart <| b)
 
 stepParticles i g =
     let currentPs    = filter (\p -> not . outOfBounds g.halfWidth g.halfHeight <| p) g.particles
         deadEs       = filter (\e -> not e.alive) g.enemies
         allParticles = concatMap (\e -> nParticles e.created e.sides e g.rGen) deadEs
-    in allParticles ++ currentPs |> map (\x -> particlePhysics i.delta g.halfHeight <| x)
+    in allParticles ++ currentPs |> map (\x -> shotPhysics i.delta g.halfHeight <| x)
 
 stepPlayState i g =
     let togglePause = (snd i.pause) && (fst i.pause) - g.paused > 5
@@ -261,13 +251,12 @@ stepPlayState i g =
           | togglePause && g.playState == Controls -> Playing
           | togglePause && g.playState == Paused   -> Playing
           | togglePause && g.playState == Playing  -> Paused
-          | g.player.health <= 0                   -> GameOver
+          | not g.player.alive                     -> GameOver
           | otherwise -> g.playState 
 
 stepGame i g = 
-    let paused = g.playState == Paused || g.playState == Start
-        playState' = stepPlayState i g
-    in if i.restart && (paused || g.player.health <= 0)
+    let playState' = stepPlayState i g
+    in if i.restart && (playState' == Paused || not g.player.alive)
        then { defaultGame | playState <- Playing }
        else case g.playState of
         Playing -> 
@@ -283,19 +272,16 @@ stepGame i g =
                     , playState  <- playState'
                     , paused     <- if g.playState /= playState' then (fst i.pause) else g.paused
                     , halfWidth  <- toFloat (fst i.windowSize)/2
-                    , halfHeight <- toFloat (snd i.windowSize)/2
-                }
+                    , halfHeight <- toFloat (snd i.windowSize)/2 }
         GameOver  -> 
                 { g | enemies    <- stepEnemies   i g 
                     , shots      <- stepWeapons   i g
                     , bombs      <- stepBombs     i g
                     , particles  <- stepParticles i g
-                    , rGen       <- snd <| genEnemies i.sinceStart g.halfWidth g.halfHeight g.rGen 
-                }
+                    , rGen       <- snd <| genEnemies i.sinceStart g.halfWidth g.halfHeight g.rGen }
         otherwise -> 
                 { g | paused     <- if g.playState /= playState' then (fst i.pause) else g.paused
-                    , playState  <- playState'
-                } 
+                    , playState  <- playState'}
 
 gameState : Signal GameOs
 gameState = foldp stepGame defaultGame input
@@ -307,108 +293,95 @@ hud     = 50
 txt : Color -> String -> Element
 txt c = centered . monospace . Text.height 18 . Text.color c . toText 
 
-header : String -> Element
-header = centered . monospace . Text.height 40 . Text.color lightRed . toText 
+header : String -> Form
+header = toForm . centered . monospace . Text.height 40 . Text.color lightRed . toText 
 
 --makeHud : GameOs -> Input -> Form
 makeHud g i = 
-    let p        = g.player
-        equipped = activeWeapon p.weapons
-        lastShot = g.shots |> listToMaybe |> maybe 0 (\x -> x.fired)
-        score    = String.padLeft 5 '0' . show <| g.score
-        timer    = String.padLeft 5 '0' . show . round . inSeconds <| g.playTime
-        paused   = g.playState == Paused
-        start    = g.playState == Start
+    let p         = g.player
+        equipped  = activeWeapon p.weapons
+        lastShot  = g.shots |> listToMaybe |> maybe 0 (\x -> x.fired)
+        bombCount = ("●" |> repeat p.bombs |> String.join " ")
+        score     = String.padLeft 5 '0' . show <| g.score
+        timer     = String.padLeft 5 '0' . show . round . inSeconds <| g.playTime
+        paused    = g.playState == Paused
+        start     = g.playState == Start
     in group
           [
-              "Health: " ++ show p.health ++ "%" |> txt white 
-                                                 |> toForm 
-                                                 |> move (-g.halfWidth+padding*2, g.halfHeight-padding/2)
-            , "Weapon: " ++ show equipped.kind   |> txt equipped.fillColor 
-                                                 |> toForm 
-                                                 |> move (-g.halfWidth/2.5, g.halfHeight-padding/2)
-            , "Bombs: "  ++ ("●" |> repeat p.bombs |> String.join " ")
-                                                   |> txt lightBlue 
-                                                   |> toForm 
-                                                   |> move (0, g.halfHeight-padding/2)
-            , "Time: " ++ timer  |> txt white 
-                                 |> toForm 
-                                 |> move (g.halfWidth-padding*6, g.halfHeight-padding/2)
-            , "Score: " ++ score |> txt white 
-                                 |> toForm 
-                                 |> move (g.halfWidth-padding*2, g.halfHeight-padding/2)
+              "Health: " ++ show p.health ++ "%" |> txt white |> toForm |> move (-g.halfWidth+padding*2, g.halfHeight-padding/2)
+            , "Weapon: " ++ show equipped.kind   |> txt equipped.fillColor |> toForm |> move (-g.halfWidth/2.5, g.halfHeight-padding/2)
+            , "Bombs: "  ++ bombCount |> txt lightBlue |> toForm |> move (0, g.halfHeight-padding/2)
+            , "Time: "   ++ timer     |> txt white |> toForm |> move (g.halfWidth-padding*6, g.halfHeight-padding/2)
+            , "Score: "  ++ score     |> txt white |> toForm |> move (g.halfWidth-padding*2, g.halfHeight-padding/2)
             , if paused then makePauseScreen g else spacer 0 0 |> toForm         
             ]
 
 makeStartScreen g =
-    group [
-            " 
+    group [ "
  ██████╗ █████╗ ██████╗ ██████╗ ██╗███╗   ██╗ █████╗ ██╗        ██████╗ ███████╗██╗    ██╗
 ██╔════╝██╔══██╗██╔══██╗██╔══██╗██║████╗  ██║██╔══██╗██║     ██╗██╔══██╗██╔════╝██║    ██║
 ██║     ███████║██████╔╝██║  ██║██║██╔██╗ ██║███████║██║     ╚═╝██████╔╝█████╗  ██║ █╗ ██║
 ██║     ██╔══██║██╔══██╗██║  ██║██║██║╚██╗██║██╔══██║██║     ██╗██╔═══╝ ██╔══╝  ██║███╗██║
 ╚██████╗██║  ██║██║  ██║██████╔╝██║██║ ╚████║██║  ██║███████╗╚═╝██║     ███████╗╚███╔███╔╝
  ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝   ╚═╝     ╚══════╝ ╚══╝╚══╝ " |> txt lightRed |> toForm |> move (0, padding*4)
-    , "Triangalia fell when the [4≤n≤10]gons attacked."      |> txt white |> toForm |> move (0, padding*1.5)
-    , "The fleet was all but exterminated."                  |> txt white |> toForm |> move (0, padding) 
-    , "You are Cardinal, the last of the Triangle warriors." |> txt white |> toForm |> move (0, 0) 
-    , "You have a blaster, a wave beam, and three bombs."    |> txt white |> toForm |> move (0, -padding*0.5)
-    , "Don't let them hit you, and don't let them past."     |> txt white |> toForm |> move (0, -padding)
-    , "You must hold them off as long as you can."           |> txt white |> toForm |> move (0, -padding*1.5)
-    , "Press 'p' to view the controls."                      |> txt white |> toForm |> move (0, -padding*2.5)
-    , "Press 'space' to join the battle."                    |> txt white |> toForm |> move (0, -padding*3)
-    ]
+          , "Triangalia fell when the [4≤n≤10]gons attacked."      |> txt white |> toForm |> move (0, padding*1.5)
+          , "The fleet was all but exterminated."                  |> txt white |> toForm |> move (0, padding) 
+          , "You are Cardinal, the last of the Triangle warriors." |> txt white |> toForm |> move (0, 0) 
+          , "You have a blaster, a wave beam, and three bombs."    |> txt white |> toForm |> move (0, -padding*0.5)
+          , "Don't let them hit you, and don't let them past."     |> txt white |> toForm |> move (0, -padding)
+          , "You must hold them off as long as you can."           |> txt white |> toForm |> move (0, -padding*1.5)
+          , "Press 'p' to view the controls."                      |> txt white |> toForm |> move (0, -padding*2.5)
+          , "Press 'space' to join the battle."                    |> txt white |> toForm |> move (0, -padding*3)
+          ]
 
 makeControlsScreen =
-    group [
-          "CONTROLS" |> header |> toForm |> move (0, padding*2.5)
-        , "'p' - to pause"                 |> txt white |> toForm |> move (0, padding*1.5)
-        , "'&uarr;&darr;' - to move ship"  |> txt white |> toForm |> move (-padding*4, padding*0.5)
-        , "'shift' - to boost speed"       |> txt white |> toForm |> move (-padding*4, -padding*0.5)
-        , "'space' - to shoot weapon"      |> txt white |> toForm |> move (padding*4, padding*0.5)
-        , "'c' - to change weapons"        |> txt white |> toForm |> move (padding*4, -padding*0.5)
-        , "'b' - to deploy a bomb"         |> txt white |> toForm |> move (0, -padding*1.5)
-         , "Press 'p' to begin."           |> txt white |> toForm |> move (0, -padding*2.5)
-    ]
+    group [ "CONTROLS"                       |> header    |> move (0, padding*2.5)
+          , "'p' - to pause"                 |> txt white |> toForm |> move (0, padding*1.5)
+          , "'&uarr;&darr;' - to move ship"  |> txt white |> toForm |> move (-padding*4, padding*0.5)
+          , "'shift' - to boost speed"       |> txt white |> toForm |> move (-padding*4, -padding*0.5)
+          , "'space' - to shoot weapon"      |> txt white |> toForm |> move (padding*4, padding*0.5)
+          , "'c' - to change weapons"        |> txt white |> toForm |> move (padding*4, -padding*0.5)
+          , "'b' - to deploy a bomb"         |> txt white |> toForm |> move (0, -padding*1.5)
+          , "Press 'p' to begin."            |> txt white |> toForm |> move (0, -padding*2.5)
+          ]
 
 makePauseScreen g =
-    group [ 
-          "PAUSED" |> header |> toForm |> move (0, padding*2.5)
-        , "'p' - to resume"       |> txt white |> toForm |> move (0, padding*1.5)
-        , "'r' - to restart game" |> txt white |> toForm |> move (0, padding)
-        , "'&uarr;&darr;' - to move ship"  |> txt white |> toForm |> move (-padding*4, 0)
-        , "'shift' - to boost speed"       |> txt white |> toForm |> move (-padding*4, -padding*0.5)
-        , "'space' - to shoot weapon"      |> txt white |> toForm |> move (padding*4, 0)
-        , "'c' - to change weapons"        |> txt white |> toForm |> move (padding*4, -padding*0.5)
-        , "'b' - to deploy a bomb"         |> txt white |> toForm |> move (0, -padding*1.5)
-    ]
+    group [ "PAUSED"                         |> header |> move (0, padding*2.5)
+          , "'p' - to resume"                |> txt white |> toForm |> move (0, padding*1.5)
+          , "'r' - to restart game"          |> txt white |> toForm |> move (0, padding)
+          , "'&uarr;&darr;' - to move ship"  |> txt white |> toForm |> move (-padding*4, 0)
+          , "'shift' - to boost speed"       |> txt white |> toForm |> move (-padding*4, -padding*0.5)
+          , "'space' - to shoot weapon"      |> txt white |> toForm |> move (padding*4, 0)
+          , "'c' - to change weapons"        |> txt white |> toForm |> move (padding*4, -padding*0.5)
+          , "'b' - to deploy a bomb"         |> txt white |> toForm |> move (0, -padding*1.5)
+          ]
 
 makeDeathScreen g =
     let finalScore = g.score      |> String.padLeft 5 '0' . show
         totalShots = g.totalShots |> String.padLeft 5 '0' . show 
         finalTime  = g.playTime   |> String.padLeft 5 '0' . String.left 4 . show . inSeconds
         accuracy   = max 0 (100.0 * (toFloat g.score)/(toFloat g.totalShots)) |> String.left 5 . show
-    in group [
-               "GAME OVER" |> txt lightRed |> toForm |> move (0, padding*3.5)
-             , "Survival Time: " ++ finalTime ++ " seconds" |> txt white |> toForm |> move (0, padding*1.5)
-             , "Final Score:  " ++ finalScore |> txt white |> toForm |> move (0, padding*0.5)
-             , "Total Shots:  " ++ totalShots |> txt white |> toForm |> move (0, -padding*0.5)
-             , "Accuracy:     " ++  accuracy  ++ "%" |> txt white |> toForm |> move (0, -padding*1.5)
-             , "Press 'r' to play again!" |> txt white |> toForm |> move (0, -padding*2.5)
-             ]
+    in 
+    group [ "GAME OVER"                                  |> txt lightRed |> toForm |> move (0, padding*3.5)
+          , "Survival Time: " ++ finalTime ++ " seconds" |> txt white |> toForm |> move (0, padding*1.5)
+          , "Final Score:  " ++ finalScore               |> txt white |> toForm |> move (0, padding*0.5)
+          , "Total Shots:  " ++ totalShots               |> txt white |> toForm |> move (0, -padding*0.5)
+          , "Accuracy:     " ++  accuracy  ++ "%"        |> txt white |> toForm |> move (0, -padding*1.5)
+          , "Press 'r' to play again!"                   |> txt white |> toForm |> move (0, -padding*2.5)
+          ]
 
 makePlayer : PlayerO -> Form
 makePlayer p = 
-    if p.health > 0 then
+    if p.alive then
         ngon 3 20   |> outlined (solid white)
                     |> move (p.x, p.y)
     else spacer 0 0 |> toForm
 
 makeShots : ShotO -> Form
 makeShots s = 
-    let fill = if | s.kind == Blaster -> lightRed
+    let fill = if | s.kind == Blaster  -> lightRed
                   | s.kind == WaveBeam -> lightPurple
-                  | otherwise -> lightBlue
+                  | otherwise          -> lightBlue
     in circle s.radius |> outlined (solid fill)
                        |> move (s.x, s.y)
 
@@ -421,20 +394,13 @@ makeEnemies : EnemyO -> Form
 makeEnemies enemy = if enemy.alive then 
     ngon enemy.sides enemy.radius |> outlined (solid white)
                                   |> move (enemy.x, enemy.y)
-    else spacer 1 1 |> toForm
+    else spacer 0 0 |> toForm
 
 makeParticles : Particle -> Form
 makeParticles p = 
-    let particleGradient = 
-        radial (0,0) p.radius (7,-15) 50
-          [ (   0, yellow)
-          , (0.75, lightRed)
-          , (   1, white)
-          ]
-    in rect p.radius 2 |> gradient particleGradient
-                       |> move (p.x, p.y)
-                       |> rotate (tan (p.y+p.vy))
-
+    rect p.radius 2 |> filled yellow
+                    |> move (p.x, p.y)
+                    |> rotate (tan (p.y+p.vy))
 
 display : (Int, Int) -> GameOs -> Input -> Element
 display (w', h') g i = 
@@ -449,11 +415,11 @@ display (w', h') g i =
                       Controls  -> makeControlsScreen
                       GameOver  -> makeDeathScreen g
                       otherwise -> makeHud g i 
-              ,  if g.playState == Playing then makePlayer g.player else spacer 0 0 |> toForm
-              ]
-               , map makeShots g.shots
-               , map makeEnemies g.enemies
-               , map makeBombs g.bombs
-               , map makeParticles g.particles] 
+              ,  if g.playState == Playing then makePlayer g.player else spacer 0 0 |> toForm ]
+              , map makeShots g.shots
+              , map makeEnemies g.enemies
+              , map makeBombs g.bombs
+              , map makeParticles g.particles
+              ] 
 
 main = lift3 display Window.dimensions gameState input
