@@ -90,6 +90,28 @@ collisionMTV s1 s2 =
         s2Proj = map (projectShape s2) <| axes
         projectionsAndAxes = zip axes  <| zip s1Proj s2Proj
         overlapping = filter (overlap . snd) projectionsAndAxes
-        minOverlap  = maybe ((0,0),0) id . listToMaybe . sortBy snd . map (\x -> (fst x, overlapMagnitude . snd <| x))
+        minOverlap  = maybe ((0,0),0) id . listToMaybe . sortBy snd . 
+                        map (\x -> (fst x, overlapMagnitude . snd <| x))
     in minOverlap overlapping
 
+-- POLYGON SHAPE DETERMINATION
+
+--Given s sides, r radius, a rotation angle, and (x,y) center, returns
+--a list of verticies.
+findVerticies : Float -> Float -> Float -> (Float,Float) -> [Vertex]
+findVerticies s r a (x,y) =
+    let angle = 2*pi/s
+    in rotateNGon (degrees a) <| map (regularNGonVerticies s angle r (x,y)) [0..s-1]
+
+-- Num. sides -> Angle b/t sides -> radius -> (x,y) ->  which side -> Vertex
+regularNGonVerticies : Float -> Float -> Float -> (Float,Float) -> Float -> Vertex
+regularNGonVerticies s angle r (x,y) i =
+    let x'    = x + r * cos (i * angle)
+        y'    = y + r * sin (i * angle)
+    in (x',y')
+
+--Rotates a polygon by d degrees. 
+rotateNGon : Float -> [Vertex] -> [Vertex]
+rotateNGon d vs =
+    let rotated = (\(x,y) -> ((x*sin d + y*cos d), (x*cos d - y*sin d)))
+    in map rotated vs
