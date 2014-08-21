@@ -11,7 +11,7 @@ import Tpoulsen.Lib (listToMaybe)
 type Input = { x:Int, y:Int, delta:Time }
 
 delta : Signal Time
-delta = lift (\t -> t/2) (fps 60)
+delta = lift (\t -> t/30) (fps 60)
 
 input : Signal Input
 input = sampleOn delta (Input <~ lift .x Keyboard.arrows
@@ -30,7 +30,7 @@ type Player  = { x:Float, y:Float, vx:Float, vy:Float, r:Float }
 defaultGame = { level=defaultMap, player=defaultPlayer }
 
 defaultPlayer : Player
-defaultPlayer = { x=150, y=100, vx=1, vy=1, r=10 }
+defaultPlayer = { x=200, y=150, vx=1, vy=1, r=15 }
 defaultMap  = makeMap 50 gameMap
 gameMap : [[Int]]
 gameMap = [ [1,1,1,1,1,1,1,1,1,1,1,1]
@@ -110,8 +110,8 @@ safeToMoveTo m p (((xMTV,yMTV),magMTV) as v)  =
 walk : Input -> GameMap -> Player -> Player
 walk i m p =
       let t = standingOn m p
-      in { p | vx <- t.walkability
-             , vy <- t.walkability }
+      in { p | vx <- t.walkability/5
+             , vy <- t.walkability/5 }
 
 physics : Input -> GameMap -> Player -> Player
 physics i m p = 
@@ -120,9 +120,9 @@ physics i m p =
         t = standingOn m p
         n = movingTowards i m p
         towardsEachOther = (dotProduct (subtract (p.x,p.y) n.coords) (subtract (p.x+ix',p.y-iy') (0,0))) < 0 |> log "towardsEachOther"
-    in if (t.walkability == 0 || n.walkability == 0) --&& towardsEachOther
-       then { p | x <- log "x" <|  p.x + xMTV * magMTV + ix'*25 
-                , y <- log "y" <|  p.y - yMTV * magMTV + iy'*25 }
+    in if t.walkability == 0 || (n.walkability == 0 && towardsEachOther)
+       then { p | x <- p.x + xMTV * magMTV + ix'*2 
+                , y <- p.y - yMTV * magMTV + iy'*2 }
        else { p | x <- p.x + ix' * p.vx
                 , y <- p.y - iy' * p.vy }
 
@@ -194,7 +194,7 @@ display : (Int, Int) -> Game -> Input -> Element
 display (w,h) g i =
     let playMap = defaultMap
         p = g.player
-    in collage (mainWidth+100) (mainHeight+100) <|
+    in container w h middle <| collage (mainWidth) (mainHeight) <|
         concat [ map .repr playMap
                , [makePlayer g.player]
                --, [findVerticies 4 p.r 45 (p.x,p.y) |> asText |> toForm  |> move (200,200) ]
