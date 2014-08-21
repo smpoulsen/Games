@@ -70,9 +70,19 @@ projectShape vs a =
 overlap : Axis -> Bool
 overlap ((min1,max1),(min2,max2)) = not <| (min1 > max2) || (min2 > max1)
 
+containment : Axis -> Bool
+containment ((min1,max1),(min2,max2)) =
+    ((min1 > min2) && (max1 < max2)) || ((min2 > min1) && (max2 < max1))
+
 overlapMagnitude : Axis -> Float
 overlapMagnitude ((min1,max1),(min2,max2)) =
     minimum <| [max1-min2, max2-min1]
+
+minimumOverlap : Maybe [(Vector2,Axis)] -> (Vector2,Float)
+minimumOverlap xs = 
+    case xs of 
+        Nothing -> ((0,0),0)
+        Just x  -> head . sortBy snd . map (\v -> (fst v, overlapMagnitude . snd <| v)) <| x
 
 --Is there overlap between the projections on all of the axes?
 collision : [Vertex] -> [Vertex] -> Bool
@@ -81,18 +91,18 @@ collision s1 s2 =
         s1Proj = map (projectShape s1) <| axes
         s2Proj = map (projectShape s2) <| axes
         zippedProjections = zip s1Proj s2Proj
-    in all overlap zippedProjections
+    in all (\x -> overlap x || containment x) zippedProjections
 
 collisionMTV : [Vertex] -> [Vertex] -> ((Vector2),Float)
 collisionMTV s1 s2 =
     let axes = map normalize <| getAxes s1 ++ getAxes s2
-        s1Proj = map (projectShape s1) <| axes
-        s2Proj = map (projectShape s2) <| axes
-        projectionsAndAxes = zip axes  <| zip s1Proj s2Proj
-        overlapping = filter (overlap . snd) projectionsAndAxes
-        minOverlap  = maybe ((0,0),0) id . listToMaybe . sortBy snd . 
-                        map (\x -> (fst x, overlapMagnitude . snd <| x))
-    in minOverlap overlapping
+        s1Proj = map (projectShape s1) axes
+        s2Proj = map (projectShape s2) axes
+        axesAndProjections = zip axes  <| zip s1Proj s2Proj
+        overlapping = if all (\x -> overlap x || containment x) <| map snd axesAndProjections 
+                      then Just (filter (\x -> overlap (snd x) || containment (snd x)) axesAndProjections)
+                      else Nothing
+    in minimumOverlap overlapping
 
 -- POLYGON SHAPE DETERMINATION
 
