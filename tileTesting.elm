@@ -19,6 +19,7 @@ input = sampleOn delta (Input <~ lift .x Keyboard.arrows
                                ~ delta)
 
 --MODEL
+data Surface = Water | Sand | Grass 
 type Tile    = { walkability:Float, coords:(Float, Float), dimensions:(Float,Float)
                , verticies:[(Float,Float)], repr:Form }
 type GameMap = [Tile]
@@ -135,39 +136,24 @@ makeRow (r',n') =
     let n = toFloat n'
         r = zip r' [1..length r'] 
         makeSquare = (\x -> case (fst x) of
-                                1 -> makeWater (toFloat <| snd x*50) (n*50)
-                                2 -> makeGrass (toFloat <| snd x*50) (n*50) 
-                                3 -> makeSand  (toFloat <| snd x*50) (n*50) 
+                                1 -> makeTile Water (toFloat <| snd x*50) (n*50)
+                                2 -> makeTile Grass (toFloat <| snd x*50) (n*50) 
+                                3 -> makeTile Sand  (toFloat <| snd x*50) (n*50) 
                      ) 
     in map makeSquare r
 
-makeWater : Float -> Float -> Tile
-makeWater x y = 
-    { walkability = 0
+makeTile : Surface -> Float -> Float -> Tile
+makeTile s x y =
+  let (tileColor,walkable) = case s of
+                                  Water -> (blue,0)
+                                  Sand  -> (brown,2)
+                                  Grass -> (green,10)
+  in
+    { walkability = walkable
     , coords      = (x, y)
     , dimensions  = (50,50)
     , verticies   = findVerticies 4 25 45 (x, y)
-    , repr        = rect 50 50 |> filled blue
-                               |> move (originX+x, originY-y)
-    }
-
-makeGrass : Float -> Float -> Tile
-makeGrass x y =
-    { walkability = 10
-    , coords      = (x, y)
-    , dimensions  = (50,50)
-    , verticies   = findVerticies 4 25 45 (x, y)
-    , repr        = rect 50 50 |> filled green
-                               |> move (originX+x, originY-y)
-    }
-
-makeSand : Float -> Float -> Tile
-makeSand x y = 
-    { walkability = 2
-    , coords      = (x, y)
-    , dimensions  = (50,50)
-    , verticies   = findVerticies 4 25 45 (x, y)
-    , repr        = rect 50 50 |> filled brown
+    , repr        = rect 50 50 |> filled tileColor
                                |> move (originX+x, originY-y)
     }
 
