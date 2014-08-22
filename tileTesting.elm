@@ -87,7 +87,7 @@ physics i m p =
         t       = currentTile m (p.x,p.y)
         towards = movingTowards m (p.x,p.y) (ix',iy')
         ((xMTV,yMTV),magMTV) = multiSampleCollisions i m towards p |> log ("resolution")
-    in if magMTV /= 0
+    in if magMTV /= 0 && t.walkability == 0
        then { p | x <- p.x + xMTV * magMTV  
                 , y <- p.y + yMTV * magMTV }
        else { p | x <- p.x + ix' * p.vx
