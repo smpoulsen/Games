@@ -1,9 +1,14 @@
+{-
+Travis Poulsen - 2014
+-}
+
 import Char
 import Keyboard
 import String
 import Text
 import Time
 import Window
+
 import Generator
 import Generator.Standard
 
@@ -15,7 +20,7 @@ type Input = { yDir:Int, fire:(Time, Bool), bomb:(Time, Bool), shift:Bool, swap:
              , restart:Bool, pause:(Time, Bool), sinceStart:Time
              , windowSize:(Int, Int), delta:Time }
 
-timeMod = 15
+timeMod = 12
 delta : Signal Time
 delta = lift (\t -> t/timeMod) (fps 60)
 
