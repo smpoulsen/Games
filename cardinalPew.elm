@@ -37,8 +37,8 @@ input = sampleOn delta (Input <~ lift .y Keyboard.arrows
                                ~ Window.dimensions
                                ~ delta )
 
-
 ------ MODEL -------
+
 --Aliases for type definition convenience.
 type PlayerO  = Player (GameObject {})
 type EnemyO   = Enemy  (GameObject {})
@@ -78,7 +78,6 @@ bomb     : Weapon
 bomb     = { kind=Bomb, active=False, cooldown=(5), lastSwapped=0, fillColor=lightBlue }
 enemy1   : EnemyO
 enemy1   = { x=1000, y=0, vx=-1, vy=0, sides=5, radius=30, alive=True, created=0.0 }
-
 
 ------ UPDATE ------
 
