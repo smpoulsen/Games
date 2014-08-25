@@ -164,6 +164,12 @@ scoreMod score es =
     let numDead = es |> filter (\e -> not e.alive) |> length 
     in score + numDead
 
+addShots : Input -> GameOs -> Int
+addShots i g = 
+    let w = activeWeapon g.player.weapons
+    in if shotCanFire i.fire w g.player g.shots then g.totalShots + 1
+       else g.totalShots
+
 --WEAPONS
 activeWeapon : [Weapon] -> Weapon
 activeWeapon ws = ws |> listToMaybe . filter (\x -> x.active) 
@@ -211,11 +217,6 @@ explodeBomb t b =
 shotsHit : [ShotO] -> EnemyO -> EnemyO
 shotsHit s e = if any (\shot -> checkCollision shot e) s then { e | alive <- False }
                else e
-
-addShots i g = 
-    let w = activeWeapon g.player.weapons
-    in if shotCanFire i.fire w g.player g.shots then g.totalShots + 1
-       else g.totalShots
 
 --STEPPERS
 stepPlayer : Input -> GameOs -> PlayerO
