@@ -20,6 +20,7 @@ type Input = { yDir:Int, fire:(Time, Bool), bomb:(Time, Bool), shift:Bool, swap:
              , restart:Bool, pause:(Time, Bool), sinceStart:Time
              , windowSize:(Int, Int), delta:Time }
 
+timeMod : number
 timeMod = 12
 delta : Signal Time
 delta = lift (\t -> t/timeMod) (fps 60)
@@ -110,15 +111,7 @@ nParticles t i e gen =
             otherwise -> newP :: (nParticles t (i-1) e newG)
 
 --COLLISION & BOUNDS CHECKS
---Collision checks aren't perfect; everything assumed to be roughly circular.
-{-
-collision : GameObject o -> GameObject o -> Bool
-collision o1 o2 = (o1.x + o1.radius >= o2.x - o2.radius && 
-                   o1.x - o1.radius <= o2.x + o2.radius) &&
-                  (o1.y + o1.radius >= o2.y - o2.radius && 
-                   o1.y - o1.radius <= o2.y + o2.radius)
--}
---checkCollision : GameObject -> GameObject -> Bool
+checkCollision : GameObject o -> GameObject o -> Bool
 checkCollision o1' o2' = 
     let o1 = findVerticies (toFloat o1'.sides) o1'.radius 0 (o1'.x, o1'.y) 
         o2 = findVerticies (toFloat o2'.sides) o2'.radius 0 (o2'.x, o2'.y)
@@ -226,10 +219,11 @@ addShots i g =
        else g.totalShots
 
 --STEPPERS
---stepPlayer : Input -> Game PlayerO EnemyO ShotO -> Game PlayerO EnemyO ShotO
+stepPlayer : Input -> GameOs -> PlayerO
 stepPlayer i g = g.player |> isAlive . shotBomb i g.bombs . healthLost g.enemies . 
                              genericPhysics i.delta g.halfHeight . moveP i . swapWeapons i
 
+stepEnemies : Input -> GameOs -> [EnemyO]
 stepEnemies i g  = 
     let inPlay = filter (\e -> not . outOfBounds g.halfWidth g.halfHeight <| e) g.enemies
         lastC  = inPlay |> listToMaybe |> maybe (enemy1) id
@@ -238,6 +232,7 @@ stepEnemies i g  =
                  else inPlay
     in map (\x -> genericPhysics i.delta g.halfHeight . shotsHit g.particles . shotsHit g.bombs . shotsHit g.shots <| x) es'
 
+stepWeapons : Input -> GameOs -> [ShotO]
 stepWeapons i g = 
     let w = activeWeapon g.player.weapons
         cleanShots = g.shots |> filter (\o -> not . outOfBounds g.halfWidth g.halfHeight <| o) 
@@ -247,16 +242,19 @@ stepWeapons i g =
     in  cleanShots |> newShot i w g.player
                    |> map (\x -> shotPhysics i.delta g.halfHeight <| x)
 
+stepBombs : Input -> GameOs -> [BombO]
 stepBombs i g = 
     let bs' = newShot i bomb g.player g.bombs |> filter (\b -> b.alive)
     in bs' |> map (\b -> shotPhysics i.delta  g.halfHeight <| explodeBomb i.sinceStart <| b)
 
+stepParticles : Input -> GameOs -> [ShotO]
 stepParticles i g =
     let currentPs    = filter (\p -> not . outOfBounds g.halfWidth g.halfHeight <| p) g.particles
         deadEs       = filter (\e -> not e.alive) g.enemies
         newParticles = concatMap (\e -> nParticles e.created e.sides e g.rGen) deadEs 
     in newParticles ++ currentPs |> map (\x -> shotPhysics i.delta g.halfHeight <| x)
 
+stepPlayState : Input -> GameOs -> PlayState
 stepPlayState i g =
     let togglePause = (snd i.pause) && (fst i.pause) - g.paused > 5
     in if | snd i.pause && g.playState == Start    -> Controls
@@ -267,6 +265,7 @@ stepPlayState i g =
           | not g.player.alive                     -> GameOver
           | otherwise -> g.playState 
 
+stepGame : Input -> GameOs -> GameOs
 stepGame i g = 
     let playState' = stepPlayState i g
     in if i.restart && (playState' == Paused || not g.player.alive)
@@ -309,7 +308,7 @@ txt c = centered . monospace . Text.height 18 . Text.color c . toText
 header : String -> Form
 header = toForm . centered . monospace . Text.height 40 . Text.color lightRed . toText 
 
---makeHud : GameOs -> Input -> Form
+makeHud : GameOs -> Input -> Form
 makeHud g i = 
     let p         = g.player
         equipped  = activeWeapon p.weapons
@@ -329,6 +328,7 @@ makeHud g i =
             , if paused then makePauseScreen g else spacer 0 0 |> toForm         
             ]
 
+makeStartScreen : GameOs -> Form
 makeStartScreen g =
     group [ "
  ██████╗ █████╗ ██████╗ ██████╗ ██╗███╗   ██╗ █████╗ ██╗        ██████╗ ███████╗██╗    ██╗
@@ -347,6 +347,7 @@ makeStartScreen g =
           , "Press 'space' to join the battle."                    |> txt white |> toForm |> move (0, -padding*3)
           ]
 
+makeControlsScreen : Form
 makeControlsScreen =
     group [ "CONTROLS"                       |> header    |> move (0, padding*2.5)
           , "'p' - to pause"                 |> txt white |> toForm |> move (0, padding*1.5)
@@ -358,6 +359,7 @@ makeControlsScreen =
           , "Press 'p' to begin."            |> txt white |> toForm |> move (0, -padding*2.5)
           ]
 
+makePauseScreen : GameOs -> Form
 makePauseScreen g =
     group [ "PAUSED"                         |> header |> move (0, padding*2.5)
           , "'p' - to resume"                |> txt white |> toForm |> move (0, padding*1.5)
@@ -369,6 +371,7 @@ makePauseScreen g =
           , "'b' - to deploy a bomb"         |> txt white |> toForm |> move (0, -padding*1.5)
           ]
 
+makeDeathScreen : GameOs -> Form
 makeDeathScreen g =
     let finalScore = g.score      |> String.padLeft 5 '0' . show
         totalShots = g.totalShots |> String.padLeft 5 '0' . show 
@@ -404,9 +407,9 @@ makeBombs b =
                     |> move (b.x, b.y)
 
 makeEnemies : EnemyO -> Form
-makeEnemies enemy = if enemy.alive then 
-    ngon enemy.sides enemy.radius |> outlined (solid white)
-                                  |> move (enemy.x, enemy.y)
+makeEnemies e = if e.alive then 
+    ngon e.sides e.radius |> outlined (solid white)
+                          |> move (e.x, e.y)
     else spacer 0 0 |> toForm
 
 makeParticles : Particle -> Form
