@@ -48,17 +48,17 @@ perProduct v1 v2 = dotProduct v1 <| rightNormal v2
 --Separating Axis Theorem implementation
 
 --Test axes are the normals of the shapes being tested.
---Assumed that [Vertex] is clockwise.
+--Assumed that [Vertex] is clockwise, therefore leftNormal used.
 getAxes : [Vertex] -> [Vector2]
 getAxes vs = 
-    let vs' = vs ++ [head vs] ++ [head . tail <| vs]
+    let vs' = vs ++ [head vs]
     in map leftNormal <| constructAxes vs'
 
 constructAxes : [Vertex] -> [Vector2]
-constructAxes ((x::y::zs) as vs) = 
-   case zs of
+constructAxes (x::ys) = 
+   case ys of
         []        -> []
-        otherwise -> lineToVector2 (x, y) :: constructAxes (tail vs)
+        otherwise -> lineToVector2 (x, (head ys)) :: constructAxes (ys)
 
 --Project all of a shapes verticies onto the axis of interest.
 projectShape : [Vertex] -> Vector2 -> (number,number)
